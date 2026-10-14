@@ -106,6 +106,8 @@
 \definecolor{codeframe}{HTML}{C8CDD4}    % （保留给旧样式引用）
 \definecolor{codeback}{HTML}{F5F8FC}
 \definecolor{codebacktitle}{HTML}{E6EBF2}
+\definecolor{quotebg}{HTML}{F0F0F0}       % 引用框灰底（原书 Quote Box 实测）
+\definecolor{quoteframe}{HTML}{646464}    % 引用框细边框（原书 Quote Box 实测）
 
 \setlength{\parindent}{2em}                      % 中文书籍惯例：首行缩进两字
 \setlength{\parskip}{0bp plus 0bp minus 0bp}     % 原书段落之间无额外间距
@@ -371,13 +373,12 @@
 }
 { \end{tcolorbox}\par\medskip }
 
-% 引用块（原书的 blockquote，如敏捷宣言摘录）：左缩进 + 左侧细竖线
+% 引用框（原书 Quote Box）：灰底 #F0F0F0 + #646464 细边框（原书实测）
 \NewDocumentEnvironment { myQuote } { }
 { \par\medskip\noindent
-  \begin{tcolorbox}[enhanced~jigsaw, breakable, colback=white, colframe=white,
-      boxrule=0bp, arc=0bp, left=14bp, right=6bp, top=2bp, bottom=2bp,
-      boxsep=0bp, before~skip=0bp, after~skip=0bp,
-      borderline~west={1.2bp}{0bp}{chapterblue}]
+  \begin{tcolorbox}[enhanced~jigsaw, breakable, colback=quotebg, colframe=quoteframe,
+      boxrule=0.4bp, arc=0bp, left=18bp, right=14bp, top=10bp, bottom=10bp,
+      boxsep=0bp, before~skip=0bp, after~skip=0bp]
     \fontsize{9.6bp}{13bp}\selectfont
 }
 { \end{tcolorbox}\par\medskip }

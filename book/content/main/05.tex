@@ -6,12 +6,15 @@
 
 在我们继续之前，应该扩展一下术语。到目前为止，我用“对象（object）”来指代某种类型的实体，并依赖我们的“直觉”来访问这些实体。但 C++ 标准用以下术语定义了一个对象（简化自 C++ 草案 — intro.object\footnote{\url{https://timsong-cpp.github.io/cppwp/n4868/intro.object\#1}}）：
 
+\begin{myQuote}
 • C++ 程序中的构造会创建、销毁、引用、访问和操作对象。
 
 • 对象由定义、new 表达式、隐式创建对象的操作创建，或者在创建临时对象时创建。对象在其构造期间、整个生存期内以及销毁期间占据一片存储区域。
+\end{myQuote}
 
 继续说：
 
+\begin{myQuote}
 • 对象可以有一个名字，
 
 • 对象有存储期（storage duration），它影响其生存期，
@@ -19,6 +22,7 @@
 • 对象有一个类型，
 
 • 对象可以包含其他对象，称为子对象（subobject）。子对象可以是成员子对象、基类子对象或数组元素。
+\end{myQuote}
 
 下面是一个处理对象生存期结束情形的析构函数基本场景：
 
@@ -220,7 +224,9 @@ Wrapper w;
 
 根据 Wikipedia\footnote{\url{https://en.wikipedia.org/wiki/Polymorphism_(computer_science)}}：
 
+\begin{myQuote}
 在编程语言理论和类型理论中，多态是为不同类型的实体提供单一接口，或使用单一符号来表示多个不同类型。
+\end{myQuote}
 
 在 C++ 中，这个定义意味着如果你有一个指向基类（base class）的指针或引用，当你调用成员函数时，编译器会调用派生类（derived class）中的实现（如果可用）。C++ 通过 \texttt{virtual} 函数实现这种技术。我们可以用下面这段朴素（但简单）的 C++ 代码来演示：
 
@@ -319,7 +325,9 @@ box destructor...
 
 关于这个关键方面还有一条特定的 C++ Core 指南。参见 C.35：基类析构函数要么应该是公有的且虚的，要么是受保护的且非虚的：
 
+\begin{myQuote}
 理由：防止未定义行为。如果析构函数是公有的，那么调用代码可能试图通过基类指针销毁一个派生类对象，而如果基类的析构函数是非虚的，结果就是未定义的。
+\end{myQuote}
 
 \section{部分创建的对象}
 

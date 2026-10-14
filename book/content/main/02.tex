@@ -169,7 +169,9 @@ name_ = "none";
 
 关于初始化器列表，还有一个重要方面：初始化的顺序。这在 C++ 规范（The C++ Specification）的 11.10.3 Classes 中有规定：
 
+\begin{myQuote}
 非静态数据成员（non-static data members）会按照它们在类定义中声明的顺序进行初始化（与 mem-initializers 的顺序无关）。
+\end{myQuote}
 
 当我以下面的方式编写构造函数时：
 
@@ -346,13 +348,17 @@ auto k{42};
 
 C++ 核心指南建议坚持这种初始化方式，因为它的好处超过了反面意见。参见 ES.23。
 
+\begin{myQuote}
 ES.23：优先使用 \texttt{\{\}}-初始化语法
 
 理由：优先使用 \texttt{\{\}}。\texttt{\{\}} 初始化的规则比其它初始化形式更简单、更通用、更不易歧义，也更安全。只有在你确定不会发生窄化转换时才使用 \texttt{=}。对于内建算术类型，只在配合 \texttt{auto} 时才使用 \texttt{=}。避免使用 \texttt{()} 初始化，因为它会引发解析歧义。
+\end{myQuote}
 
 该指南还提到了一些例外：
 
+\begin{myQuote}
 例外：对于容器，传统上用 \{…\} 表示一组元素，用 (…) 表示大小：\texttt{vector<int> v(10); // 10 个元素，默认值为 0}
+\end{myQuote}
 
 \begin{codebox}[cpp]
 vector<int> v2{10}; // 含有 1 个元素的 vector，元素值为 10
@@ -741,9 +747,11 @@ Aggregate ag2 = { 0, Point{0, 1}};
 
 \texttt{explicit} 关键字非常重要，以至于它在 C++ 核心指南中有自己的一条规则：C++ 核心指南 C.46。
 
+\begin{myQuote}
 C.46：默认情况下，把单参数构造函数声明为 \texttt{explicit}
 
 理由：避免意外的转换。
+\end{myQuote}
 
 \begin{myInfoBox}
 此外，在 C++20 中，我们有扩展语法 \texttt{explicit(bool)}，可以有条件地标记显式构造函数。这是一个有点高级的特性，所以本书不会涉及。你可以在 @C++Reference 处阅读更多。
@@ -815,7 +823,9 @@ Special spec = 42; // 无法编译！
 
 根据 @C++ Reference 的拷贝初始化：
 
+\begin{myQuote}
 对于 \texttt{T object = other;}：如果 \texttt{T} 是类类型，并且 \texttt{other} 的类型去掉 cv 限定符之后既不是 \texttt{T} 也不是从 \texttt{T} 派生的；或者如果 \texttt{T} 是非类类型，但 \texttt{other} 的类型是类类型，那么就会检查那些能把 \texttt{other} 的类型转换成 \texttt{T}（或者，如果 \texttt{T} 是类类型且有可用的转换函数，则转换成从 \texttt{T} 派生的类型）的用户定义转换序列，并通过重载决议选出最佳的一个。如果使用了转换构造函数，转换的结果就是去掉 cv 限定符后的 \texttt{T} 类型的一个纯右值（prvalue）表达式，然后它被用来直接初始化该对象。
+\end{myQuote}
 
 这里的关键规则是，编译器只能执行一次转换步骤，而我们的例子需要两步。这就是为什么我们会得到错误。你可以通过把转换写明确来修复代码：
 
@@ -828,7 +838,9 @@ Special spec = n;
 
 根据 over.ics.user：
 
+\begin{myQuote}
 用户定义的转换序列（user-defined conversion sequence）由一段初始的标准转换序列、后跟一个用户定义的转换、再后跟第二段标准转换序列组成。
+\end{myQuote}
 
 \begin{myInfoBox}
 更多内容请见 @Microsoft Learn 的标准转换，以及 @Microsoft Learn 的用户定义类型转换（C++）。

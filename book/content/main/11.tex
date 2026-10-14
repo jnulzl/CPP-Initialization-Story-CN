@@ -669,7 +669,9 @@ static inline int classCounter = 0;
 
 \myGraphic{0.9}{images/fig_p206_1.png}{}
 
+\begin{myQuote}
 部分有序的动态初始化（partially-ordered dynamic initialization），适用于所有并非隐式或显式实例化的特化的内联变量。如果部分有序的 V 在每个翻译单元中都定义在有序或部分有序的 W 之前，那么 V 的初始化就在 W 的初始化之前排序。
+\end{myQuote}
 
 基于前面的代码，下面是使用 \texttt{Value} 类与多个编译单元的示例：
 

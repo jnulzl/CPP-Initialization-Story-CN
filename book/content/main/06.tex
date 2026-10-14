@@ -650,7 +650,9 @@ const auto arr
 
 这个术语由 Herb Sutter 在 GotW-94 文章\footnote{\url{https://herbsutter.com/2013/08/12/gotw-94-solution-aaa-style-almost-always-auto/}}、GotW 93\footnote{\url{https://herbsutter.com/2013/06/13/gotw-93-solution-auto-variables-part-2/}} 和 GotW 92 中推广：
 
+\begin{myQuote}
 指南：请记住，优先使用 auto 变量主要是出于正确性、性能、可维护性、健壮性方面的动机 — 最后才是为了输入的便利。
+\end{myQuote}
 
 以下是使用 AAA 的一些主要好处：
 
@@ -704,4 +706,6 @@ auto m = std::mutex{};
 
 在章末，我想引用 Google C++ Style Guide 关于类型推导的一句话\footnote{\url{https://google.github.io/styleguide/cppguide.html\#Type_deduction}}：
 
+\begin{myQuote}
 基本规则是：仅在你能让代码更清晰或更安全时使用类型推导，不要仅仅为了避免写显式类型的不便而使用它。在判断代码是否更清晰时，请记住你的读者不一定在你的团队中，也不一定熟悉你的项目，所以你和你的审阅者觉得不必要的那些类型，往往能给别人提供有用的信息。例如，你可以假设 \texttt{make\_unique<Foo>()} 的返回类型很明显，但 \texttt{MyWidgetFactory()} 的返回类型可能不是。
+\end{myQuote}
