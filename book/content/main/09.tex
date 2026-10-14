@@ -1,0 +1,528 @@
+\texttt{CarInfo}、\texttt{DataPacket} 和 \texttt{Product} 类型使用了相对简单的数据成员，比如整数、双精度浮点数或字符串。虽然 \texttt{std::string} 实际上是一个（字符的）容器（container），我们往往把它当作基本类型来用。在本节中，我想讨论更复杂的数据成员，比如数组、向量（vector）或映射（map）。首先，我们会试着理解初始化它们的语法与方式，然后你将学习 \texttt{std::initializer\_list}。
+
+\section{基础}
+
+如果你有一个包含各种容器的简单结构体，下面是在默认构造函数中初始化它们的一些基本方式：
+
+\begin{codeboxt}[cpp]{代码清单 9.1 作为数据成员的容器的基本语法。在 Compiler Explorer 上运行}
+#include <array>
+#include <iostream>
+#include <map>
+#include <string>
+#include <vector>
+struct S {
+    S()
+    : numbers { 1, 2, 3, 4}
+    //, nums { 1, 2, 3}
+    , doubles { 0.1, 1.1, 2.1 }
+    , ints { 100, 101, 102}
+    , moreInts( 10, 1) // 10 1's, not 10 and 1
+    , names ( 10, "hello" ) // 10 "hello" strings
+    , mapping { {"one", 1}, {"two", 2} }
+    { }
+    int numbers[4];
+    // int nums[]; // need to provide the size!
+    std::array<double, 3> doubles;
+    std::vector<int> ints;
+    std::vector<int> moreInts;
+    std::vector<std::string> names;
+    std::map<std::string, int> mapping;
+};
+int main() {
+    S s;
+    std::cout << "s.numbers[0]: " << s.numbers[0] << '\n';
+    std::cout << "s.double[0]: " << s.doubles[0] << '\n';
+    std::cout << "s.ints[0]: " << s.ints[0] << '\n';
+    std::cout << "s.moreInts[9]: " << s.moreInts[9] << '\n';
+    std::cout << "s.names[9]: " << s.names[9] << '\n';
+    std::cout << "s.mapping[\"one\"]: " << s.mapping["one"] << '\n';
+}
+\end{codeboxt}
+
+下面是例子中的各个选项：
+
+\begin{itemize}
+\item \texttt{int numbers[4];} —— 是一个普通的 C 风格数组；我们可以用聚合初始化来放入这些值。
+\item 语法 \texttt{//, nums \{ 1, 2, 3\}} 不是一个选项，因为我们不能在不提供大小的情况下声明一个数组，然后再初始化它。
+\item \texttt{doubles} 是 \texttt{std::array<double, 3>}，这是一个 C++11 风格的数组，它也是一个聚合体（aggregate）类型。
+\item \texttt{ints} 是一个 \texttt{std::vector} 整数向量，我们可以用列表初始化来设置元素。注意，不需要传入这些元素的大小/个数。
+\item \texttt{moreInts} 是另一个向量，但这次我使用了圆括号 \texttt{()} 来调用 \texttt{vector(size\_type count, const T\& value = T())} 构造函数。在这种情况下，花括号 \texttt{\{\}} 会调用错误的构造函数，从而创建一个含两个元素 \texttt{1} 和 \texttt{10} 的向量。这是因为容器存储的值类型可以转换为大小类型（\texttt{size\_t}）。此外，根据核心指南 ES.23\footnote{\url{https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines\#es23-prefer-the--initializer-syntax}}，对于带大小的构造函数，使用圆括号更清晰。
+\item \texttt{names} 是一个 \texttt{std::string} 的向量，我也使用了圆括号 \texttt{()} 来调用“大小”构造函数。这一次，花括号 \texttt{\{\}} 也会调用“大小”构造函数，因为编译器很清楚 \texttt{\{10, "hello"\}} 不是一个由两个同类型元素组成的 pair。
+\item \texttt{mapping} 是 \texttt{std::map}，我们也可以使用一个方便的构造函数一次性传入所有键值对。
+\end{itemize}
+
+使用标准容器（作为普通数据成员，而非指针）的一大好处是，无需实现额外的特殊成员函数。拷贝、移动或赋值运算符开箱即用。更不用说，也无需自定义析构函数。
+
+从前面的章节中，你知道对于默认初始化，我们也可以依赖 NSDMI，并在声明数据成员的那一刻设置值：
+
+\begin{codeboxt}[cpp]{代码清单 9.2 作为数据成员的容器与 NSDMI。在 Compiler Explorer 上运行}
+#include <array>
+#include <iostream>
+#include <map>
+#include <string>
+#include <vector>
+struct S {
+    int numbers[4] { 1, 2, 3, 4};
+    // int nums[] { 0, 1, 2 }; // need to provide the size!
+    std::array<double, 3> doubles { 0.1, 1.1, 2.1 };
+    std::vector<int> ints { 100, 101, 102};
+    std::vector<int> moreInts = std::vector<int>(10, 1);
+    std::vector<std::string> names = std::vector<std::string>(10, "hello");
+    std::map<std::string, int> mapping { {"one", 1}, {"two", 2} };
+};
+int main() {
+    S s;
+    std::cout << "s.numbers[0]: " << s.numbers[0] << '\n';
+    std::cout << "s.double[0]: " << s.doubles[0] << '\n';
+    std::cout << "s.ints[0]: " << s.ints[0] << '\n';
+    std::cout << "s.moreInts[9]: " << s.moreInts[9] << '\n';
+    std::cout << "s.names[9]: " << s.names[9] << '\n';
+    std::cout << "s.mapping[\"one\"]: " << s.mapping["one"] << '\n';
+}
+\end{codeboxt}
+
+在大多数情况下，NSDMI 语法很方便，让我们可以在声明所有类容器的成员时就地初始化它们。正如我们在关于 NSDMI 与直接初始化的小节中讨论过的，我们必须（例如）使用拷贝初始化来调用向量带圆括号 \texttt{()} 的构造函数。无需在构造函数中复制代码，并且 \texttt{S} 结构体可以保留它的聚合体身份（因此，我们可以利用聚合初始化）。
+
+自 C++11 起，所有标准容器都可以在构造函数中接受一个值列表。例如，在 C++11 之前，对于 \texttt{std::vector}，你不得不使用 \texttt{push\_back} 调用来向容器填充不同的值。新标准是如何做到这一点的呢？请看下一节。
+
+\subsection{使用 std::initializer\_list}
+
+随着列表初始化的想法，也出现了把这样的列表传递给非聚合类型的能力。自 C++11 起，你可以使用 \texttt{std::initializer\_list<T>}，它是一个轻量级的代理对象，提供了对类型为 \texttt{const T} 的对象数组的访问。
+
+标准文档给出了如下示例（decl.init.list）\footnote{\url{https://timsong-cpp.github.io/cppwp/n4868/dcl.init.list\#5}}：
+
+\begin{codebox}[cpp]
+struct X {
+    X(std::initializer_list<double> v);
+};
+X x{ 1,2,3 };
+\end{codebox}
+
+初始化的实现方式大致等价于如下代码：
+
+\begin{codebox}[cpp]
+const double __a[3] = {double{1}, double{2}, double{3}};
+X x(std::initializer_list<double>(__a, __a+3));
+\end{codebox}
+
+换句话说，编译器创建了一个 \texttt{const} 数组，然后传给你一个代理对象，它看起来像一个带有迭代器、\texttt{begin()}、\texttt{end()}，甚至 \texttt{size()} 函数的常规 C++ 容器。下面是一个基本示例，演示了这个类型的用法：
+
+\begin{codeboxt}[cpp]{代码清单 9.3 接受 initializer\_list 的函数。在 Compiler Explorer 上运行}
+#include <iostream>
+#include <initializer_list>
+void foo(std::initializer_list<int> list) {
+    if (!std::empty(list)) {
+        for (auto& x : list)
+            std::cout << x << ", ";
+        std::cout << "(" << list.size() << " elements)\n";
+    }
+    else
+        std::cout << "empty list\n";
+}
+int main() {
+    foo({});
+    foo({1, 2, 3});
+    foo({1, 2, 3, 4, 5});
+}
+\end{codeboxt}
+
+在这个例子中，有一个函数接受一个 \texttt{std::initializer\_list} 整数列表。由于它看起来像一个常规容器，我们可以使用非成员函数如 \texttt{std::empty}，在基于范围的 for 循环中使用它，并检查它的 \texttt{size()}。请注意，无需传入 \texttt{const initializer\_list<int>\&}（一个 \texttt{const} 引用），因为初始化列表是一个轻量级对象，所以按值传递并不会复制“隐藏”数组中被引用的元素。
+
+注意，我们不能对 \texttt{std::array} 做同样的事，因为作为函数参数它必须具有固定大小。\texttt{initializer\_list} 的长度是可变的；编译器会负责处理这一点。
+
+此外，“内部”数组是在栈上创建的，因此不需要任何额外的内存分配（就像你使用 \texttt{std::vector} 那样）。该列表也只接受同构的值，并且初始化不允许窄化转换（narrowing conversions）。例如：
+
+\begin{codebox}[cpp]
+// foo({1, 2, 3, 4, 5.5}); // error, narrowing
+foo({1, 'x', '0', 10}); // fine, char converted to int
+\end{codebox}
+
+还有一个方便的用例，你可以直接在基于范围的 for 循环中使用初始化列表：
+
+\begin{codebox}[cpp]
+#include <iostream>
+int main() {
+    for (auto x : {"hello", "coding", "world"})
+        std::cout << x << ", ";
+}
+\end{codebox}
+
+这个临时的 \texttt{initializer\_list} 具有被延长的生命期（lifetime extension），并在循环的作用域内可见。要查看这段代码的底层机制，你可以看这个 C++ Insights 示例\footnote{\url{https://cppinsights.io/s/67363d91}}。
+
+我还必须指出，由于 \texttt{initializer\_list} 引用的是某个内部的局部数组，那么你不应该返回它：
+
+\begin{codebox}[cpp]
+std::initializer_list<int> wrong() { // for illustration only!
+    return { 1, 2, 3, 4};
+}
+int main() {
+    std::initializer_list<int> x = wrong();
+}
+\end{codebox}
+
+上面的代码等价于如下代码：
+
+\begin{codebox}[cpp]
+std::initializer_list<int> wrong() {
+    const int arr[] { 1, 2, 3, 4}
+    return std::initializer_list<int>{arr, arr+4};
+}
+int main() {
+    std::initializer_list<int> x = wrong();
+}
+\end{codebox}
+
+这个例子只是用来说明这个错误，让你了解这种类型是如何工作的。该函数返回指向局部对象的指针/迭代器，这将导致未定义行为（undefined behavior）。编译器应该对此类用法发出警告。参见这里的演示\footnote{\url{https://godbolt.org/z/bonveWf4a}}。
+
+总而言之，我们可以得出如下结论：
+
+\begin{myWarnBox}
+\texttt{std::initializer\_list} 是一个“视图（view）”类型；它引用某个实现相关的、由 \texttt{const} 值组成的局部数组。主要把它用于向函数传递同类型的可变数量实参。如果你试图返回这样的列表并到处传递，那么你会面临生命期问题。
+\end{myWarnBox}
+
+请谨慎使用。
+
+\subsection{接受 std::initializer\_list 的构造函数}
+
+如前所述，标准库（Standard Library）中的所有容器都有支持 \texttt{initializer\_list} 的构造函数。例如：
+
+\begin{codebox}[cpp]
+// the vector class:
+constexpr vector( std::initializer_list<T> init,
+                  const Allocator& alloc = Allocator() );
+// map:
+map( std::initializer_list<value_type> init,
+     const Compare& comp = Compare(),
+     const Allocator& alloc = Allocator() );
+\end{codebox}
+
+它是如何工作的呢？我们来看一个带有接受该列表的用户声明构造函数的简单类类型：
+
+\begin{codeboxt}[cpp]{代码清单 9.4 测试带 initializer\_list 的构造函数。在 Compiler Explorer 上运行}
+#include <iostream>
+#include <initializer_list>
+struct X {
+    X(std::initializer_list<int> list)
+    : count{list.size()} { puts("X(init_list)"); }
+    X(size_t cnt) : count{cnt} { puts("X(cnt)"); }
+    X() { puts("X()"); }
+    size_t count {};
+};
+int main() {
+    X x;
+    std::cout << "x.count = " << x.count << '\n';
+    X y { 1 };
+    std::cout << "y.count = " << y.count << '\n';
+    X z { 1, 2, 3, 4 };
+    std::cout << "z.count = " << z.count << '\n';
+    X w ( 3 );
+    std::cout << "w.count = " << w.count << '\n';
+}
+\end{codeboxt}
+
+
+\texttt{X} 类定义了三个构造函数，其中一个接受 \texttt{initializer\_list}。如果我们运行程序，会看到如下输出：
+
+\begin{codebox}[cpp]
+X()
+x.count = 0
+X(init_list)
+y.count = 1
+X(init_list)
+z.count = 4
+X(cnt)
+w.count = 3
+\end{codebox}
+
+如你所见，写 \texttt{X x;} 会调用默认构造函数。类似地，如果你写 \texttt{X x\{\};}，编译器不会调用带空初始化列表的构造函数。但在其他情况下，列表构造函数是“贪婪的”，会优先于接受单个实参的常规构造函数。要调用确切的构造函数，你需要使用带圆括号 \texttt{()} 的直接初始化。
+
+\section{实现示例}
+
+让我们进一步深入容器，看一些更贴近现实的例子。我想向你展示 \texttt{Package} 类，它持有若干个 \texttt{Product} 对象。作为额外的复杂性，在这个 \texttt{Package} 类内部，我们统计包裹的总价值，并按名称统计产品数量。下面是 \texttt{Product} 类（与我们之前的声明类似）：
+
+\begin{codebox}[cpp]
+struct Product {
+    Product() = default;
+    Product(std::string s, double v)
+    : name{std::move(s)}, value{v}
+    { }
+    std::string name;
+    double value{};
+};
+\end{codebox}
+
+以及 \texttt{Package} 类：
+
+\begin{codebox}[cpp]
+class Package {
+public:
+    void addProduct(const Product& p) {
+        ++counts_[p.name];
+        prods_.push_back(p);
+        totalValue_ += p.value;
+    }
+    void printContents() const {
+        for (auto& [key, val] : counts_)
+            std::cout << key << ", count: " << val<< '\n';
+        std::cout << "total value: " << totalValue_ << '\n';
+    }
+private:
+    std::vector<Product> prods_; // all products
+    std::map<std::string, unsigned> counts_;
+    double totalValue_ { };
+};
+\end{codebox}
+
+\texttt{Package} 类持有我们通过 \texttt{AddProduct()} 成员函数传入的所有对象，并且还会执行一些内部变更：它统计价值的总和，并把产品加入 \texttt{counts\_} 字典。我们可以用下面的客户端代码来运行这段代码：
+
+\begin{codeboxt}[cpp]{代码清单 9.5 Package 类演示。在 Compiler Explorer 上运行}
+#include <iostream>
+#include <string>
+#include <vector>
+#include <map>
+struct Product { /*as before*/ };
+class Package { /*as above*/ };
+int main() {
+    Package pack;
+    pack.addProduct({"crayons", 3.0});
+    pack.addProduct({"pen", 2.0});
+    pack.addProduct({"bricks", 11.0});
+    pack.addProduct({"bricks", 12.0});
+    pack.addProduct({"pen", 12.0});
+    pack.addProduct({"pencil", 12.0});
+    pack.printContents();
+}
+\end{codeboxt}
+
+毫不意外，我们会得到如下输出：
+
+\begin{codebox}[cpp]
+bricks, count: 2
+crayons, count: 1
+pen, count: 2
+pencil, count: 1
+total value: 52
+\end{codebox}
+
+虽然这段代码看起来没错，但这种做法至少有一个不便之处。客户端必须多次使用 \texttt{addProduct} 来填充内部容器。这可以通过创建一个（以及一些函数重载）接受整个容器的构造函数来改进：
+
+\begin{codebox}[cpp]
+Package(const std::vector<Product>& items) {
+    for (const auto& elem : items)
+        addProduct(elem);
+}
+\end{codebox}
+
+拥有一个一次性接收更多元素的函数，在你处理批量数据时可能很方便。例如，从文件加载产品，或接收一个网络数据包。
+
+另一方面，对于单元测试或测试代码，你可能想用一组对象来初始化你的对象。在接收 \texttt{std::vector} 的情况下，你必须写成：
+
+\begin{codebox}[cpp]
+Package pack {
+    std::vector<Product>{{"pen", 1.0}, {"pencil", 2.0}}
+};
+\end{codebox}
+
+注意多出来的一对花括号。第一对花括号开启了对构造函数的调用，下一组则创建了一个临时向量，随后被传入构造函数。另一方面，你也可以使用 \texttt{std::initializer\_list} 来获得更简洁的语法：
+
+\begin{codeboxt}[cpp]{代码清单 9.6 带 initializer\_list 的 Package 类。在 Compiler Explorer 上运行}
+struct Product { /*as before*/ };
+class Package {
+public:
+    Package() = default;
+    Package(std::initializer_list<Product> items) {
+        for (auto& elem : items)
+            addProduct(elem);
+    }
+    void addProduct(const Product& p) {
+        ++counts_[p.name];
+        prods_.push_back(p);
+        totalValue_ += p.value;
+    }
+    void printContents() const {
+        for (auto& [key, val] : counts_)
+            std::cout << key << ", count: " << val<< '\n';
+        std::cout << "total value: " << totalValue_ << '\n';
+    }
+private:
+    std::vector<Product> prods_; // all products
+    std::map<std::string, unsigned> counts_;
+    double totalValue_ { };
+};
+int main() {
+    Package pack {
+        {"pen", 1.0}, {"pencil", 2.0}
+    };
+    pack.addProduct({"crayons", 3.0});
+    pack.addProduct({"pen", 2.0});
+    pack.addProduct({"bricks", 11.0});
+    pack.addProduct({"bricks", 12.0});
+    pack.printContents();
+}
+\end{codeboxt}
+
+在上面的例子中，有两个构造函数：一个默认构造函数，另一个是接受 \texttt{std::initializer\_list} 的构造函数。我必须指定一个默认构造函数，这样才能创建 \texttt{Package} 的 \texttt{emptyPackage;}，因为 \texttt{initializer\_list} 不允许我们传入空列表 \texttt{\{\}}，也不允许使用默认初始化。
+
+与使用 \texttt{std::vector} 相比，有什么优势呢？除了嵌套花括号之外，\texttt{std::vector} 需要为存储其元素的内存块做一次动态分配。而对于 \texttt{std::initializer\_list}，编译器推导大小并在底层为元素创建一个 C 风格数组，因此这里没有额外的分配。
+
+我们也不仅限于构造函数，因为我们可以在正常函数中使用 \texttt{initializer\_list}：
+
+\begin{codebox}[cpp]
+Package(std::initializer_list<Product> items) {
+    addProducts(items);
+}
+void addProduct(const Product& p) { /* as before */ }
+void addProducts(std::initializer_list<Product> items) {
+    for (auto& elem : items)
+        addProduct(elem);
+}
+\end{codebox}
+
+上面的例子只展示了实现 \texttt{Package} 类的一部分。我创建了一个新的成员函数 \texttt{addProducts}，它接受 \texttt{initializer\_list} 并调用 \texttt{addProduct} 来完成主要工作。构造函数也更新为调用这个新函数，从而不重复代码。
+
+\section{拷贝元素的代价}
+
+通过 \texttt{std::initializer\_list} 传递元素非常方便，但最好知道，当你把它传递给 \texttt{std::vector} 的构造函数（或其他标准容器）时，每个元素都必须被拷贝。这是因为，从概念上讲，\texttt{initializer\_list} 中的对象被放入一个 \texttt{const} 临时数组，因此必须被拷贝到容器中。请看下面这个比较 \texttt{push\_back}、\texttt{emplace\_back} 和 \texttt{initializer\_list} 的例子：
+
+\begin{codeboxt}[cpp]{代码清单 9.7 initializer\_list 中的额外拷贝。在 Compiler Explorer 上运行}
+struct Value {
+    Value(int x) : v(x) { std::cout << "Value(" << v << ")\n"; }
+    Value(const Value& rhs) : v{rhs.v}
+    {std::cout << "copy Value(" << v << ")\n"; }
+    Value(Value&& rhs) : v{rhs.v}
+    {std::cout << "move Value(" << v << ")\n"; }
+    ~Value() noexcept { std::cout << "~Value(" << v << ")\n"; }
+    int v {0};
+};
+int main() {
+    std::vector<Value> vals {
+        1, 2,
+    };
+    std::vector<Value> moreVals;
+    moreVals.reserve(4);
+    std::cout << "with emplace... \n";
+    moreVals.emplace_back(3);
+    moreVals.emplace_back(4);
+    std::cout << "with push... \n";
+    moreVals.push_back(5);
+    moreVals.push_back(6);
+}
+\end{codeboxt}
+
+如果我们运行程序，会得到如下输出：
+
+\begin{codebox}[cpp]
+Value(1)
+Value(2)
+copy Value(1)
+copy Value(2)
+~Value(2)
+~Value(1)
+with emplace...
+Value(3)
+Value(4)
+with push...
+Value(5)
+move Value(5)
+~Value(5)
+Value(6)
+move Value(6)
+~Value(6)
+... other destructors ...
+\end{codebox}
+
+如你所见，在 \texttt{initializer\_list} 的情况下，我们调用了两个构造函数，然后是两个拷贝构造函数。接着，那两个临时对象的析构函数被调用。在 \texttt{emplace\_back()} 的情况下，编译器“原地”创建对象，因此无需拷贝，甚至无需移动对象。在 \texttt{push\_back()} 的情况下，会创建一个临时对象，然后可以被“移动”到最终目的地。
+
+类似地，当你用 \texttt{initializer\_list} 初始化一个 \texttt{std::string} 的 \texttt{std::vector} 时，你会得到额外的拷贝：
+
+\begin{codebox}[cpp]
+std::vector<std::string> words { "Hello", "World" };
+\end{codebox}
+
+在上面的情况中，会从字符串字面量创建两个临时字符串对象，然后被拷贝进容器。
+
+\section{一些不便之处——不可拷贝类型}
+
+在上一节中，我们谈到了使用 \texttt{initializer\_list} 会带来的额外拷贝，当你的对象不可拷贝时，这也会引发问题。例如，当你想创建一个 \texttt{unique\_ptr} 的向量时。
+
+\begin{codeboxt}[cpp]{代码清单 9.8 尝试传递 unique\_ptr。在 Compiler Explorer 上运行}
+#include <vector>
+#include <memory>
+struct Shape {
+    virtual void render() const ; };
+struct Circle : Shape { void render() const override; };
+struct Rectangle : Shape {
+    void render() const override; };
+int main() {
+    std::vector<std::unique_ptr<Shape>> shapes {
+        std::make_unique<Circle>(), std::make_unique<Rectangle>()
+    };
+}
+\end{codeboxt}
+
+我想创建向量的那一行无法编译，并且我们得到了很多关于拷贝问题的信息。unique 指针不能被拷贝，只能被移动，而通过 \texttt{initializer\_list} 传递并没有给我们任何处理这些情况的选项。构建这样一个容器的唯一方式是使用 \texttt{emplace\_back} 或 \texttt{push\_back}：
+
+\begin{codebox}[cpp]
+std::vector<std::unique_ptr<Shape>> shapes;
+shapes.reserve(2);
+shapes.push_back(std::make_unique<Circle>());
+// or
+shapes.emplace_back(std::make_unique<Rectangle>());
+\end{codebox}
+
+可在此处查看可运行代码\footnote{\url{https://godbolt.org/z/E7h4vzYP4}}。
+
+\section{更多选项（进阶）}
+
+\texttt{std::initializer\_list} 是传递同构值列表的最佳方式吗？它有一些用途，对于看起来像容器的类，并且你想提供一个一次性传入值列表的便捷方式时，它可能足够好。但是，我们也可以利用一些模板技巧，使用可变参数函数模板（variadic function templates）。
+
+\begin{codeboxt}[cpp]{代码清单 9.9 可变参数函数模板。在 Compiler Explorer 上运行}
+template<typename... Ts>
+requires (std::same_as<Ts, Product> && ...)
+void addProducts(const Product & first, const Ts&... args) {
+    addProduct(first);
+    (addProduct(args), ...);
+}
+pack.addProducts({"pencil", 12.0}, Product{"pen", 10});
+//pack.addProducts({"pencil", 12.0}, 10); // error, 10 is not a Product
+\end{codeboxt}
+
+我不想深入全部细节，因为这超出了本书的范围，但这里有几个支撑这段代码的核心特性：
+
+\begin{itemize}
+\item 可变参数模板（variadic templates）允许我们向函数传递任意数量的实参，并用实参包（argument pack）语法处理它们。
+\item C++20 的约束（concepts）增加了一种方式来要求所有输入类型都是 \texttt{Product}。例如，在最后一行，我试图把整数 \texttt{10} 作为第二个实参传给函数，编译器生成了一个错误，说整数 \texttt{10} 不匹配约束的要求。
+\item \texttt{(addProduct(args), ...);} 是一个基于逗号运算符的折叠表达式（fold expression），它在编译期优雅地展开实参包。折叠表达式自 C++17 起可用。
+\item 这段代码也可以用右值引用（形成一个万能引用，universal reference）来更新，从而被转发到内部函数。
+\end{itemize}
+
+我们可以类似地为 \texttt{unique\_ptr} 编写一个函数：
+
+\begin{codeboxt}[cpp]{代码清单 9.10 从一组 unique 指针初始化。在 Compiler Explorer 上运行}
+template<typename T, typename... Args>
+auto initFromMoveable(Args&&... args) {
+    std::vector<std::unique_ptr<T>> vec;
+    vec.reserve(sizeof...(Args));
+    (vec.emplace_back(std::forward<Args>(args)), ...);
+    return vec;
+}
+int main() {
+    auto shapes = initFromMoveable<Shape>(
+        std::make_unique<Circle>(),
+        std::make_unique<Rectangle>()
+    );
+}
+\end{codeboxt}
+
+有关这些技巧的更多信息，请查看 C++Stories 博客上的文章：C++20 Concepts——快速入门\footnote{\url{https://www.cppstories.com/2021/concepts-intro/}}、C++ 模板：如何遍历 std::tuple：基础\footnote{\url{https://www.cppstories.com/2022/tuple-iteration-basics/}}。
+
+\begin{myInfoBox}
+\texttt{std::initializer\_list} 在 C++ 中名声不佳。你可以在 Jason Turner 于 C++Now 2018 的演讲“Initializer Lists are Broken — Let's Fix Them.”\footnote{\url{https://www.youtube.com/watch?v=sSlmmZMFsXQ}} 中看到这一点，并了解向函数传递列表的不同解决方案。还可以看看 Andrzej Krzemieński 关于 \texttt{std::initializer\_list} 的代价\footnote{\url{https://akrzemi1.wordpress.com/2016/07/07/the-cost-of-stdinitializer_list/}} 这篇文章。
+\end{myInfoBox}
+
+\section{小结}
+
+在本章中，我们讨论了把各种容器作为数据成员。如果我们使用标准库中的容器，那么它们会处理所有的内存管理与分配。我们可以把这些标准容器当作常规类型来使用，而不必担心为特殊成员函数做自定义实现。得益于 NSDMI 特性，我们可以用方便的语法安全地初始化它们。在本章的第二部分，你学习了 \texttt{initializer\_list}，它是用便捷 API 一次性传递多个值的一种选择。
+
+
+\texttt{initializer\_list} 类型只是一个内部 const 对象数组的视图。对于简单类型，\texttt{initializer\_list} 有一些好处，但你必须意识到传递时带来的额外拷贝。此外，如果你有一个接受该列表的构造函数，那么它会“贪婪”地优先于其他非默认构造函数。

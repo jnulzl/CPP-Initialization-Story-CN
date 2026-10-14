@@ -1,0 +1,630 @@
+到目前为止，我们讨论的都是可变的（mutable）非静态数据成员，比如整数、双精度浮点数或字符串。这样的对象是规则的（regular）\footnote{“规则”是 C++ 标准里一个明确定义的术语，参见 \url{https://en.cppreference.com/w/cpp/concepts/regular}。}，意味着它们可拷贝、可默认构造，并且可以相等比较。
+
+然而，类里也可以存放其他类别的对象。例如，一个自定义类型可能包含常量数据成员、指针、引用，或者像 unique 指针或互斥量这样只能移动（move-only）的字段。对于这类成员，编译器在生成特殊成员函数的默认实现时会遇到问题。
+
+在本章中，我们将厘清这类情况。
+
+\section{常量非静态数据成员}
+
+考虑下面这段代码，它带有一个 \texttt{const} 数据成员 \texttt{id\_}：
+
+\begin{codeboxt}[cpp]{代码清单 10.1 一个常量数据成员（在 Compiler Explorer 上运行）}
+#include <iostream>
+#include <string>
+class ProductConst {
+public:
+explicit ProductConst(const char* name, unsigned id)
+: name_(name), id_(id) { }
+const std::string& name() const { return name_; }
+void name(const std::string& name) { name_ = name; }
+unsigned id() const { return id_; }
+private:
+std::string name_;
+const unsigned id_;
+};
+int main() {
+ProductConst tvset{"TV Set", 123};
+std::cout << tvset.name() << ", id: " << tvset.id() << '\n';
+ProductConst copy { tvset };
+std::cout << copy.name() << ", id: " << copy.id() << '\n';
+}
+\end{codeboxt}
+
+在上面的例子中，类 \texttt{ProductConst} 有一个常量数据成员 \texttt{id\_}。我们可以在构造函数内部设置这个常量；从那以后它就被固定了，我们无法再改变它的值。
+
+乍看上去，这段代码没什么问题，我们甚至可以用默认拷贝构造函数从 \texttt{tvset} 创建出 \texttt{copy}。但是，我们面临几个问题：
+
+首先，默认构造函数被封禁了：
+
+\begin{codebox}[cpp]
+class ProdConst {
+public:
+ProdConst() = default; // warning in clang!
+\end{codebox}
+
+在 Clang 中，你会得到如下警告：
+
+\begin{codebox}[cpp]
+default constructor of 'ProdConst' is implicitly deleted because field
+'id_' of const-qualified type 'const unsigned int' would not be initialized
+\end{codebox}
+
+你可以尝试用类内成员初始化（in-class member initialization）来修复它：
+
+\begin{codebox}[cpp]
+private:
+std::string name_;
+const unsigned id_ { 0 };
+};
+\end{codebox}
+
+然而，这在语义上是令人困惑的，因为你之后无法再改变那个成员的值。
+
+当你试图改变 \texttt{tvset} 的值时，你或许也会感到惊讶：
+
+\begin{codebox}[cpp]
+tvset = Product("TV Set 2022", 456);
+\end{codebox}
+
+这行代码会产生一个编译错误！这是因为编译器试图调用赋值运算符，但由于有一个数据成员是常量，这是不可能的。只要有一个数据成员是 \texttt{const}，编译器就不会为我们生成默认的赋值运算符。这样的类在标准容器里也可能引发麻烦。考虑下面的代码：
+
+\begin{codebox}[cpp]
+std::vector<ProdConst> prods;
+prods.push_back(ProdConst("box", 234));
+prods.push_back(ProdConst("car", 567));
+prods.insert(prods.begin(), ProductConst("ball", 987));
+\end{codebox}
+
+虽然 \texttt{push\_back} 调用都能正常工作（因为编译器可以在容器内部成功创建对象），但 \texttt{insert()} 却有问题，它要求有一个可用的赋值运算符。
+
+GCC 可能会报告如下错误：
+
+\begin{codebox}[cpp]
+error: use of deleted function ProdConst& ProdConst::operator=(ProdConst&&)
+\end{codebox}
+
+你可以通过这个例子在 Compiler Explorer 上进行试验\footnote{\url{https://godbolt.org/z/oeazxj5qs}}。
+
+修复这个编译错误的唯一办法是编写一个自定义的赋值运算符。例如，你可以拷贝可变数据成员，而“留下”常量成员。问题在于这样做相当复杂。而且，对读者来说也可能产生误导，因为很难推断到底什么发生了变化。
+
+如果你希望你的对象是常量，那就把它作为一个“整体”声明为 \texttt{const}，而不是只把其中某些部分设为常量。
+
+\begin{myInfoBox}
+关于常量数据成员的这个语义问题，你可以阅读 Arthur O'Dwyer 写的一篇很好的概述；参见 \texttt{const} all the things?\footnote{\url{https://quuxplusone.github.io/blog/2022/01/23/dont-const-all-the-things/}}。
+\end{myInfoBox}
+
+我们可以把带有 \texttt{const} 非静态数据成员的类类型总结如下：
+
+\begin{itemize}
+\item 只有当你给该成员赋了一个默认值（NSDMI）时，它才是默认可构造的；否则，它将不可默认构造。
+\item 编译器可以生成拷贝构造函数和移动构造函数。
+\item 默认的拷贝赋值运算符和移动赋值运算符都被封禁。
+\end{itemize}
+
+
+\section{指针作为数据成员}
+
+这一节本该以一个警告开头：“不要使用裸指针（raw pointer）”，但如果你真要用，请务必小心。看看下面这个危险的包装类：
+
+\begin{codeboxt}[cpp]{代码清单 10.2 裸指针作为数据成员（在 Compiler Explorer 上运行）}
+#include <iostream>
+#include <string>
+class DangerousWrapper {
+public:
+explicit DangerousWrapper(std::string* pstr) : pName_(pstr) { }
+std::string* name() const { return pName_; }
+void name(std::string* pstr) { pName_ = pstr; }
+private:
+std::string* pName_ { nullptr };
+};
+int main() {
+std::string str { "Name"};
+DangerousWrapper w { &str };
+DangerousWrapper x { w };
+std::cout << *w.name() << '\n'; // urgh... !!
+*(x.name()) = "Other";
+std::cout << *w.name() << '\n'; // urgh... !!
+}
+\end{codeboxt}
+
+它看上去很简单。\texttt{pName\_} 是一个指向 \texttt{std::string} 的裸指针，在正确使用时似乎能工作。指针可以被拷贝和赋值；因此，编译器会创建默认的拷贝构造函数、移动构造函数、拷贝赋值运算符和移动赋值运算符。
+
+但要点和风险在于：这种包装类很难用对！
+
+每次你访问一个指针时，都应该检查它是否为空。例如，下面这行：
+
+\begin{codebox}[cpp]
+*(w.name())
+\end{codebox}
+
+如果 \texttt{pName\_} 为空，它就可能产生未定义行为（undefined behavior，UB）。在实际中，你大概率会在 x86/64 平台（如 Windows 或 Linux）上遇到运行时崩溃。
+
+更重要的是，你还必须为下面这类情况做好准备：
+
+\begin{codebox}[cpp]
+DangerousWrapper foo() {
+std::string str { "Name"};
+DangerousWrapper w { &str };
+// some computation...
+return w;
+}
+auto x = foo(); // oops... !!
+\end{codebox}
+
+你能看出这里会发生什么吗？
+
+这段代码返回一个包装类，它持有一个指向局部对象的指针。函数结束后，局部变量 \texttt{str} 离开了作用域，而 \texttt{pName\_} 将指向一些垃圾数据。在那种情况下，检查 \texttt{!= nullptr} 也无济于事。
+
+我们那个简单的包装类可以被看作一种视图（view）类型的对象。这类类型依赖某些其他对象的存在，那些对象声明在相同或不同的作用域里。在标准库中，我们至少可以举出两个类似的类型：
+
+\begin{itemize}
+\item \texttt{std::string\_view}（来自 C++17）
+\item \texttt{std::span}（来自 C++20）
+\end{itemize}
+
+不过，我们也可以在一个类的内部使用指针，而不直接接收或暴露它们。最好的例子之一就是“指向实现的指针”（pointer to implementation），被广泛称为 \texttt{pimpl} 这个流行缩写\footnote{PIMPL 常用于减少编译时间，而在 C++20 中，由于模块（modules）的出现，这可能不再必要。不过，PIMPL 仍然有其价值。}。
+
+下面是这个模式与裸指针的一个版本：
+
+\begin{codebox}[cpp]
+// class.h
+class MyClassImpl;
+class MyClass {
+// special member functions...
+void Foo();
+private:
+MyClassImpl* pImpl_ {};
+};
+// class.cpp
+class MyClassImpl
+{
+public:
+void DoStuff() { /*...*/ }
+};
+MyClass::MyClass ()
+: pImpl_(new MyClassImpl())
+{ }
+MyClass::~MyClass () { delete pImpl_; }
+void MyClass ::DoSth() {
+m_pImpl->DoSth();
+}
+\end{codebox}
+
+简而言之，我们在头文件里声明了一个指向某个不完整类型（incomplete type）的指针。指针有一个确定不变的大小（通常是 4 或 8 字节），所以编译器能够恰当地评估 \texttt{MyClass} 类的大小，即便它指向某个不完整的 \texttt{MyClassImpl}。在 cpp 文件里，我们声明并定义这个实现类。主类变成一个很薄的包装类，通过 \texttt{pImpl\_} 指针去调用实现。这里要注意的主要一点是：指针的生命期与父类的生命期严格绑定。如果你创建了 \texttt{MyClass}，你也同时开启了 \texttt{pImpl\_} 的生命期。指向实现的指针不暴露到外部，类的客户无法直接修改它，所以可以安全使用。
+
+虽然编译器能够生成默认的拷贝和移动操作，但它们只会产生“浅”（shallow）拷贝，因为指针会被逐位拷贝。我们必须实现特殊成员函数，来为实现对象正确地分配新指针。
+
+你可以在我的文章 The Pimpl Pattern - what you should know - C++ Stories 中了解这个模式的所有好处\footnote{\url{https://www.cppstories.com/2018/01/pimpl/}}。
+
+指向实现的指针只是指针可能派上用场的众多例子之一。我们还可以列出几种想法：
+
+\begin{itemize}
+\item 持有一个指向某个缓存的指针。该缓存可以按需创建，并在需要时更新。
+\item 持有一个指向某些无法放入栈的大型缓冲区的指针。
+\item 如果这个类需要为 C 风格库（比如文件句柄、套接字、操作系统对象等）保留一些指针。
+\end{itemize}
+
+在上述所有情况中，所存储指针的生命期都“位于”父类/对象生命期的内部，或者说被其包裹。这样做比较棘手，但通常比依赖完全“位于”对象之外的实体更安全。
+
+\begin{myWarnBox}
+裸指针通常很难用对，所以要小心，或者改用智能指针。
+\end{myWarnBox}
+
+总结一下，带有裸指针非静态数据成员的类类型具有以下性质：
+
+\begin{itemize}
+\item 它是默认可构造的，但最好给该指针赋一个起始值（至少是 \texttt{nullptr}）。
+\item 编译器可以生成拷贝构造函数和移动构造函数，但那会是一次浅拷贝！
+\item 编译器可以创建默认的拷贝赋值运算符和移动赋值运算符，但这些操作同样是浅的！
+\end{itemize}
+
+\section{智能指针作为数据成员}
+
+如果你需要把指针用作数据成员，那就考虑使用智能指针（smart pointer）。智能指针的主要好处在于，它们把资源的创建与销毁都封装了起来。正因如此，你无需再记得手动释放资源。让我们看一个例子，它展示了类内部的 \texttt{unique\_ptr}：
+
+
+\begin{codeboxt}[cpp]{代码清单 10.3 unique 指针作为数据成员（在 Compiler Explorer 上运行）}
+struct Value {
+explicit Value(int v) : v_(v) { std::cout << "Value(" << v_ << ")\n"; }
+~Value() noexcept { std::cout << "~Value(" << v_ << ")\n"; }
+int v_;
+};
+class ProductUniquePointer {
+public:
+ProductUniquePointer() = default;
+explicit ProductUniquePointer(const char* name,
+std::unique_ptr<Value> pId)
+: name_(name), pId_(std::move(pId)) { }
+const std::string& name() const { return name_; }
+int id() const { return pId_ ? pId_->v_ : 0; }
+private:
+std::string name_;
+std::unique_ptr<Value> pId_;
+};
+\end{codeboxt}
+
+这一次代码稍微复杂一些，但主要好处是我们提高了代码的安全性。这段代码使用了一个简单的 \texttt{Value} 包装类型，它会在构造函数和析构函数中输出一些文本。
+
+例如，下面是一个简单的用例：
+
+\begin{codebox}[cpp]
+auto pId = std::make_unique<Value>(123);
+ProductUniquePointer tvset{"TV Set", std::move(pId)};
+std::cout << "tvset: " << tvset.name() << ", id: " << tvset.id() << '\n';
+ProductUniquePointer moved { std::move(tvset) };
+std::cout << "tvset: " << tvset.name() << ", id: " << tvset.id() << '\n';
+std::cout << "moved:
+" << moved.name() << ", id: " << moved.id() << '\n';
+\end{codebox}
+
+这段代码创建了 \texttt{pId}，然后把它传给 \texttt{tvset} 对象。注意，我们必须显式地“移动”它。这会将该资源的所有权（也就是为 \texttt{Value} 对象分配的内存）转移到 \texttt{ProductUniquePointer} 实例中。在任意时刻，该资源都只有一个（“唯一”）所有者。之后，我们移动整个对象来创建 \texttt{moved}。下面是这个程序的输出：
+
+\begin{codebox}[cpp]
+Value(123)
+tvset: TV Set, id: 123
+tvset: , id: 0
+moved:
+TV Set, id: 123
+~Value(123)
+\end{codebox}
+
+注意，\texttt{Value} 的析构函数是自动调用的，而且只调用一次。当我们从 \texttt{tvset} 移动之后，默认移动构造函数被调用，\texttt{tvset} 对象就处于一种未指定的但有效的状态（通常是一个“空”状态）。
+
+由于这个类没有实现任何特殊成员函数，编译器会提供默认实现。对于 \texttt{unique\_ptr} 数据成员而言，拷贝操作被封禁，但移动操作会提供。这个限制其实是件好事，因为我们不得不去决定这个类的语义，并实现自定义的拷贝操作。
+
+\section{基于 unique\_ptr 的更安全包装类}
+
+\texttt{unique\_ptr} 也能帮我们应对那些离开作用域的对象，就像我们在 \texttt{DangerousWrapper} 中看到的那样。下面是一个把裸指针替换成智能指针的版本；这段代码无法编译：
+
+\begin{codebox}[cpp]
+#include <string>
+#include <memory>
+class SaferWrapper {
+public:
+explicit SaferWrapper(unique_ptr<string> pstr)
+: pName_(move(pstr)) { }
+string* name() const { return pName_.get(); }
+void name(unique_ptr<string> pstr) { pName_ = move(pstr); }
+private:
+unique_ptr<string> pName_ {nullptr};
+};
+SaferWrapper foo() {
+string str { "Name"};
+SaferWrapper w { &str };
+// some computation...
+return w;
+}
+int main() { }
+\end{codebox}
+
+\texttt{SaferWrapper} 会为构造函数接收一个 \texttt{unique\_ptr} 作为参数。这会立刻阻止传入裸指针 \texttt{\&str}，GCC 会报告如下错误：
+
+\begin{codebox}[cpp]
+error: no matching function for call to 'SaferWrapper::SaferWrapper(...)'
+20 |
+SaferWrapper w { &str };
+\end{codebox}
+
+要修复这个问题，我们可以这样写：
+
+\begin{codebox}[cpp]
+// 1)
+std::string str { "Name"};
+SaferWrapper w { std::make_unique<std::string>(str) };
+// 2):
+SaferWrapper w { std::make_unique<std::string>("Name") };
+\end{codebox}
+
+在上面的第一种情况中，\texttt{1)} 会用 \texttt{str} 对象的一个副本创建一个临时的 unique 指针。在第二种情况下，没有额外的字符串拷贝，指针是由字符串字面量 \texttt{"Name"} 创建的。在两种情况下，字符串对象都分配在堆上，所以即使函数结束，指针依然有效。
+
+当然，你仍然可以写出下面这样的代码：
+
+\begin{codebox}[cpp]
+// bad idea:
+std::string str { "Name"};
+SaferWrapper w { std::unique_ptr<std::string>(&str) };
+\end{codebox}
+
+但在这种情况下，unique 指针仍然会指向某个局部对象，当它离开作用域时就会失效。如你所见，\texttt{unique\_ptr} 给了我们一种更安全的技术，但你在创建它时仍然需要留心。
+
+\subsection{用 unique\_ptr 改进 pimpl}
+
+更进一步，下面是一个改进版本，它基于我们之前的代码改用 \texttt{unique\_ptr}。这个类“包裹”了该指针，并且代码实现了所有特殊成员函数以妥善管理它。
+
+\begin{codeboxt}[cpp]{代码清单 10.4 基于 unique\_ptr 的 PIMPL，头文件（在 Wandbox 上运行）}
+// class.h
+#include <memory>
+class MyClassImpl;
+class MyClass {
+public:
+MyClass();
+~MyClass();
+// movable:
+MyClass(MyClass && rhs) noexcept;
+MyClass& operator=(MyClass && rhs) noexcept;
+// and copyable
+MyClass(const MyClass& rhs);
+MyClass& operator=(const MyClass& rhs);
+void DoSth();
+void DoConst() const;
+private:
+const MyClassImpl* Pimpl() const { return m_pImpl.get(); }
+MyClassImpl* Pimpl() { return m_pImpl.get(); }
+std::unique_ptr<MyClassImpl> m_pImpl;
+};
+\end{codeboxt}
+
+以及源文件：
+
+\begin{codeboxt}[cpp]{代码清单 10.4 基于 unique\_ptr 的 PIMPL，cpp 文件（在 Wandbox 上运行）}
+// class.cpp
+#include "class.h"
+#include <iostream>
+class MyClassImpl {
+public:
+~MyClassImpl() = default;
+void DoSth() { std::cout << "Impl::DoSth()\n"; }
+void DoConst() const { }
+};
+MyClass::MyClass() : m_pImpl(std::make_unique<MyClassImpl>()) { }
+MyClass::~MyClass() = default;
+MyClass::MyClass(MyClass &&) noexcept = default;
+MyClass& MyClass::operator=(MyClass &&) noexcept = default;
+MyClass::MyClass(const MyClass& rhs)
+: m_pImpl(std::make_unique<MyClassImpl>(*rhs.m_pImpl)) { }
+MyClass& MyClass::operator=(const MyClass& rhs) {
+if (this != &rhs)
+m_pImpl = std::make_unique<MyClassImpl>(*rhs.m_pImpl);
+return *this;
+}
+void MyClass::DoSth() {
+std::cout << "MyClass::DoSth() wrapper\n";
+Pimpl()->DoSth();
+}
+void MyClass::DoConst() const {
+Pimpl()->DoConst();
+}
+\end{codeboxt}
+
+上面的代码使用 \texttt{unique\_ptr} 来持有指向“实现”的指针。这个类定义了特殊成员函数，因此当你拷贝一个对象时，你会连同实现细节一起拷贝。
+
+\subsection{使用 std::shared\_ptr}
+
+另一方面，我们也可以使用 \texttt{shared\_ptr}，它的语义有所不同。\texttt{shared\_ptr} 不是把资源限制为单个所有者，而是让多个所有者共享同一个资源。当最后一个所有者结束生命期时，资源才被删除。下面是这种行为的一个简化演示：
+
+\begin{codeboxt}[cpp]{代码清单 10.5 共享指针作为数据成员（在 Compiler Explorer 上运行）}
+struct Value {
+explicit Value(int v) : v_(v) { cout << "Value(" << v_ << ")\n"; }
+~Value() noexcept { cout << "~Value(" << v_ << ")\n"; }
+int v_;
+};
+class ProductWithSharedPtr {
+public:
+ProductWithSharedPtr() = default;
+explicit ProductWithSharedPtr(const char* name,
+std::shared_ptr<Value> pId)
+: name_(name), pId_(pId) { }
+const std::string& name() const { return name_; }
+int id() const { return pId_ ? pId_->v_ : 0; }
+private:
+std::string name_;
+std::shared_ptr<Value> pId_;
+};
+\end{codeboxt}
+
+我们可以这样使用它：
+
+\begin{codebox}[cpp]
+int main() {
+auto pId = make_shared<Value>(123);
+ProductWithSharedPtr tv{"TV Set", pId};
+cout << "tv: " << tv.name() << ", id: " << tv.id() << '\n';
+cout << "pId use count: " << pId.use_count() << '\n';
+{
+ProductWithSharedPtr copy { tv };
+cout << "tv: " << tv.name() << ", id: " << tv.id() << '\n';
+cout << "copy:
+" << copy.name() << ", id: " << copy.id() << '\n';
+pId->v_ = 100;
+cout << "tv: " << tv.name() << ", id: " << tv.id() << '\n';
+cout << "copy:
+" << copy.name() << ", id: " << copy.id() << '\n';
+cout << "pId use count: " << pId.use_count() << '\n';
+}
+cout << "pId use count: " << pId.use_count() << '\n';
+}
+Value(123)
+tv: TV Set, id: 123
+pId use count: 2
+tv: TV Set, id: 123
+copy:
+TV Set, id: 123
+tv: TV Set, id: 100
+copy:
+TV Set, id: 100
+pId use count: 3
+pId use count: 2
+~Value(100)
+\end{codebox}
+
+如你所见，我们仍然只有一个 \texttt{Value} 资源，然后把它传给 \texttt{tvset} 对象。当我们将对象拷贝到 \texttt{copy} 时，指针被共享（资源并没有被拷贝）。这比裸指针的浅拷贝更安全，因为我们有精确的语义，而且能看清资源的各个所有者在哪里。例如，当 \texttt{copy} 离开作用域时，它不会 \texttt{delete} 掉 \texttt{Value} 对象；它只是递减引用计数（可以看到“use count”从 3 降到 2）。最终，\texttt{tvset} 和 \texttt{pId} 都离开作用域，引用计数降到零，于是这块内存就被释放了。
+
+\section{智能指针小结}
+
+总结一下，带有智能指针非静态数据成员的类类型具有以下性质：
+
+\begin{itemize}
+\item 它是默认可构造的，但最好给该指针赋一个起始值（至少是 \texttt{nullptr}）。
+\item 编译器可以生成移动构造函数和移动赋值运算符。
+\item 对于 \texttt{unique\_ptr}，默认的拷贝操作被封禁，你必须实现自定义版本。
+\item 对于 \texttt{shared\_ptr}，会提供默认的拷贝操作，但它们是“浅”的。这仍然比拷贝裸指针更安全，因为这一次我们拷贝的是共享指针，这会增加它们内部的引用计数，因此资源处理是安全的（尽管可能更难推理）。
+\end{itemize}
+
+\section{引用作为数据成员}
+
+我们已经讲过了 \texttt{const} 和指针，现在终于可以谈谈作为数据成员的引用了。
+
+但在此之前，我们需要回顾一下 \texttt{const} 指针：
+
+\begin{codebox}[cpp]
+// value being pointed cannot be changed:
+const int* pInt;
+int const* pInt; // equivalent form
+// address of the pointer cannot be changed,
+// but the value being pointed can be
+int* const pInt;
+// both value and the address of the pointer are protected from changing
+const int* const pInt;
+int const* const pInt; // equivalent form
+\end{codebox}
+
+在大多数情况下，我们可以把引用看成 \texttt{T* const ptr} 这样的类型。换句话说，我们可以用某个其他对象来初始化引用，但之后无法再重新绑定（rebind）它。这立刻带来了与 \texttt{const} 数据成员相同的后果：
+
+\begin{itemize}
+\item 默认构造函数会有问题，因为我们无法给引用赋 \texttt{nullptr}。
+\item 编译器会提供默认的拷贝构造函数和移动构造函数，但它们像指针一样是“浅”的。
+\item 默认的拷贝赋值运算符和移动赋值运算符被删除，因为编译器无法为 \texttt{const} 数据成员实现它们。
+\end{itemize}
+
+看下面这个例子：
+
+\begin{codebox}[cpp]
+#include <iostream>
+#include <string>
+class WrapperWithRef {
+public:
+WrapperWithRef() = default; // cannot make it default...
+explicit WrapperWithRef(std::string& n) : name_(n) { }
+const std::string& name() const { return name_; }
+void name(const std::string& name) { name_ = name; }
+private:
+std::string& name_; // cannot set to "nullptr" or {} empty!
+};
+int main() {
+std::string str { "Name"};
+WrapperWithRef w { str };
+w.name(str);
+WrapperWithRef x { w };
+std::cout << "str:
+" << str << '\n';
+std::cout << "x.name(): " << x.name() << '\n';
+x.name("abc");
+std::cout << "str:
+" << str << '\n';
+//WrapperWithRef def {}; // cannot default construct
+\
+//x = w; // error, cannot assign
+}
+\end{codebox}
+
+这个例子演示了带有引用成员的类的几个用例。我们可以创建这类对象并拷贝它们，但不能赋新值，也不能重新绑定引用。
+
+不过，持有引用并不罕见，而且你在使用 lambda 时可能就在隐式地创建这类类型。看一下：
+
+\begin{codebox}[cpp]
+#include <iostream>
+#include <string>
+int main() {
+std::string str { "Name"};
+auto changeStr = [&str](int x) {
+str = std::to_string(x);
+};
+std::cout << str << '\n';
+changeStr(10);
+std::cout << str << '\n';
+}
+\end{codebox}
+
+如果我们通过 C++Insights 来查看这段代码，它会展示“编译器如何改写代码”，我们就能看到由这个 lambda 创建出的下面这个“未命名”类：
+
+\begin{codebox}[cpp]
+// basic string<> translated to std::string for simplicity...
+class __lambda_6_22 {
+public:
+inline /*constexpr */ void operator()(int x) const {
+str.operator=(std::to_string(x));
+}
+__lambda_6_22(std::string & _str) : str{_str} { }
+private:
+std::string & str;
+};
+\end{codebox}
+
+参见 C++Insights\footnote{\url{https://cppinsights.io/s/82fbe838}}。
+
+\subsection{改用 std::reference\_wrapper}
+
+持有一个普通引用可能会给你的类设计带来一些麻烦。作为一种替代方案，C++ 标准库提供了 \texttt{std::reference\_wrapper}，它“把一个引用包装进一个可拷贝、可赋值的对象中”。
+
+看下面这个例子：
+
+\begin{codebox}[cpp]
+#include <iostream>
+#include <string>
+class WrapperWitStdhRef {
+public:
+explicit WrapperWitStdhRef(std::string& n) : name_(n) { }
+const std::string& name() const { return name_; }
+void rebind(std::string& name) { name_ = name; }
+void name(const std::string& name) { name_.get() = name; }
+private:
+std::reference_wrapper<std::string> name_;
+};
+int main() {
+std::string str { "Name"};
+WrapperWitStdhRef w { str };
+w.name(str);
+WrapperWitStdhRef x { w };
+std::cout << "str:
+" << str << '\n';
+std::cout << "x.name(): " << x.name() << '\n';
+x.name("abc");
+std::cout << "str:
+" << str << '\n';
+std::cout << "x.name(): " << x.name() << '\n';
+//WrapperWitStdhRef def {}; // cannot default construct
+x = w; // fine now
+}
+\end{codebox}
+
+这一次的代码与上一段非常相似，但请注意两个成员函数：\texttt{name(...)} 和 \texttt{rebind(...)}。要改变 \texttt{name\_} 所指向的值，你需要使用 \texttt{.get()} 成员函数。而普通的赋值运算符则会重新绑定引用。和之前一样，这个类仍然无法默认构造，因为 \texttt{reference\_wrapper} 不能为空/null。
+
+\texttt{reference\_wrapper} 的其他用例：
+
+\begin{itemize}
+\item 用普通引用无法把 \texttt{std::reference\_wrapper} 存进标准容器。
+\item 创建引用的 pair 或 tuple。
+\item 向 \texttt{std::thread} 的启动函数传递类似引用的参数。
+\end{itemize}
+
+\begin{myInfoBox}
+\texttt{std::refrence\_wrapper} 通常实现为指向被包装类型的裸指针。额外的成员函数和运算符让它“感觉”像一个还能重新绑定的引用类型。
+\end{myInfoBox}
+
+\section{小结}
+
+在本章中，我们讨论了几类数据成员，当你在初始化父类实例时，它们会表现出一些有趣的性质。
+
+借助标准库中的类型萃取（type trait），我们可以快速测试并展示这类类的性质。核心函数是：
+
+\begin{codeboxt}[cpp]{代码清单 10.8 展示一个类型的基本性质（在 Compiler Explorer 上运行）}
+template <typename T>
+void ShowProps() {
+using namespace std;
+cout << typeid(T).name() << " props: \n";
+cout << "default constructible " << is_default_constructible_v<T>;
+cout << " | copy assignable " << is_copy_assignable_v<T> << " | ";
+cout << "move assignable " << is_move_assignable_v<T> << '\n';
+cout << "copy constructible " << is_copy_constructible_v<T> << " | ";
+cout << "move constructible " << is_move_constructible_v<T> << '\n';
+}
+\end{codeboxt}
+
+使用上面这个函数模板，我生成了下面这张表：
+
+
+例如，当你的类有一个 \texttt{const} 数据成员时，默认构造函数就不可用（除非你赋了某个默认值），拷贝构造函数和移动构造函数可以由编译器提供，但默认的赋值运算符不可用。“仅自定义”（Custom only）的意思是编译器无法生成默认实现，用户必须自己提供某个自定义实现。
+
+在讨论完其他类别的非静态数据成员之后，我们现在可以来考察静态数据成员了。在现代 C++ 中该如何使用它们？参见下一章。
+
+\myGraphic{0.9}{images/fig_p184_1.png}{}

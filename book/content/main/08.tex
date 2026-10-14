@@ -1,0 +1,678 @@
+你已经学了很多与构造函数相关的技巧！你可以在各个构造函数中初始化数据成员，通过委托构造函数来复用代码，并从基类继承构造函数。不过，我们还能进一步改进为数据成员赋默认值的方式。我在第一章提到过这个特性，当时我们为聚合体（aggregate）赋予了默认值。对类（class）我们也可以做同样的事。本章中，我们将了解这个特性的完整语法与选项。
+
+请看下面的例子：
+
+\begin{codeboxt}[cpp]{代码清单 8.1 NSDMI 基础。在 Compiler Explorer 上运行}
+class DataPacket {
+    std::string data_;
+    size_t checkSum_ { 0 };
+    size_t serverId_ { 0 };
+public:
+    DataPacket() = default;
+    DataPacket(const std::string& data, size_t serverId)
+    : data_{data}, checkSum_{calcCheckSum(data)}, serverId_{serverId}
+    { }
+    // getters and setters...
+};
+\end{codeboxt}
+
+如你所见，数据成员在声明点就设置了默认值。无需在构造函数内部再赋默认值。这个特性比默认构造函数（default constructor）好得多，因为它把声明和初始化代码结合在了一起。这样，就更难把数据成员留在未初始化状态了！
+
+让我们详细地探索这个 Modern C++ 的便捷特性。
+
+\section{它是如何工作的}
+
+本节展示编译器如何“展开”代码来初始化数据成员。
+
+对于一个简单的声明：
+
+\begin{codebox}[cpp]
+struct SimpleType {
+    int field { 0 };
+};
+\end{codebox}
+
+这段代码的行为必须类似于你定义了一个构造函数\footnote{严格来说，这两种类型会有所不同，因为不带构造函数的版本会被视为聚合体（aggregate）类型，但就……}：
+
+\begin{codebox}[cpp]
+struct SimpleType {
+    SimpleType() : field(0) { }
+    int field;
+};
+\end{codebox}
+
+下面是完整可运行的例子：
+
+\begin{codeboxt}[cpp]{代码清单 8.2 基本的非静态数据成员初始化。在 Compiler Explorer 上运行}
+#include <iostream>
+struct SimpleType {
+    int field { 0 };
+};
+int main() {
+    SimpleType st;
+    std::cout << "st.field is " << st.field << '\n';
+}
+\end{codeboxt}
+
+作为一个小练习，你可以试着修改上面的示例，给 \texttt{field} 数据成员赋不同的值，观察输出的变化。
+
+\section{探究}
+
+借助一些“机关”，我们能看到编译器何时执行初始化。来看下面这个类型：
+
+\begin{codebox}[cpp]
+struct SimpleType {
+    int a { initA() };
+    std::string b { initB() };
+    // ...
+};
+\end{codebox}
+
+\texttt{initA()} 和 \texttt{initB()} 函数的实现有副作用，会输出额外的信息：
+
+\begin{codebox}[cpp]
+int initA() {
+    std::cout << "initA() called\n";
+    return 1;
+}
+std::string initB() {
+    std::cout << "initB() called\n";
+    return "Hello";
+}
+\end{codebox}
+
+这样我们就能看到代码何时被调用。
+
+\section{实验}
+
+现在，我们可以接入这些函数并编写一些额外的构造函数：
+
+\begin{codebox}[cpp]
+struct SimpleType {
+    int a { initA() };
+    std::string b { initB() };
+    SimpleType() { std::cout << "SimpleType()\n"; }
+    SimpleType(int x) : a(x) { std::cout << "SimpleType(int)\n"; }
+};
+\end{codebox}
+
+下面是测试代码的场景：
+
+\begin{codeboxt}[cpp]{代码清单 8.3 调用 initA 和 initB 函数。在 Compiler Explorer 上运行}
+#include <iostream>
+#include <string>
+int initA() { /* as above */ }
+std::string initB() { /* as above */ }
+struct SimpleType { /* as in the snippet above */ };
+int main() {
+    std::cout << "SimpleType t0\n";
+    SimpleType t0;
+    std::cout << "SimpleType t1(10)\n";
+    SimpleType t1(10);
+}
+\end{codeboxt}
+
+运行代码后，可以看到如下输出：
+
+\begin{codebox}[cpp]
+SimpleType t0
+initA() called
+initB() called
+SimpleType()
+SimpleType t1(10)
+initB() called
+SimpleType(int)
+\end{codebox}
+
+你可以观察以下几点：
+
+\texttt{t0} 是默认初始化（default-initialized）的；因此，两个字段都用各自的默认值初始化。换句话说，编译器调用了 \texttt{initA()} 和 \texttt{initB()}。请注意，它们是按照在类/结构体声明中出现的顺序初始化的。之后，才调用默认构造函数的函数体。
+
+在第二种情况中，对于 \texttt{t1}，只有一个值被默认初始化，另一个来自构造函数参数。
+
+正如你可能已经猜到的那样，编译器初始化这些字段的方式，就好像这些字段是在“成员初始化列表（member initializer list）”中初始化的一样。因此，它们在构造函数体被调用之前就已获得默认值。
+
+换句话说，编译器“概念上”把代码展开为：
+
+\begin{codebox}[cpp]
+struct SimpleType {
+    int a { initA() };
+    std::string b { initB() };
+    SimpleType() { }
+    SimpleType(int x) : a(x) { }
+};
+\end{codebox}
+
+展开为：
+
+\begin{codebox}[cpp]
+struct SimpleType {
+    int a;
+    std::string b;
+    SimpleType() : a(initA()), b(initB()) { }
+    SimpleType(int x) : a(x), b(initB())
+    { }
+};
+\end{codebox}
+
+我们也可以用下面的图来可视化它：
+
+\section{NSDMI 的其他形式}
+
+我们来试试其他一些例子，看看用非静态数据成员初始化器（NSDMI）初始化数据成员的所有可选形式：
+
+\myGraphic{0.9}{images/fig_p131_1.png}{（NSDMI 的多种语法示意）}
+
+\begin{codeboxt}[cpp]{代码清单 8.4 NSDMI 的多种语法。在 Compiler Explorer 上运行}
+struct S {
+    int zero {};
+    // fine, value initialization
+    int a = 10;
+    // fine, copy initialization
+    double b { 10.5 }; // fine, direct list initialization
+    // short c ( 100 );
+    // err, direct initialization with parens
+    int d { zero + a }; // dependency, risky, but fine
+    // double e { *mem * 2.0 }; // undefined!
+    int* mem = new int(d); // only for demo, use smart pointers...
+    std::unique_ptr<int[]> pInts = std::make_unique<int[]>(10);
+    long arr[4] = { 0, 1, 2, 3 };
+    std::array<int, 4> moreNumbers { 10, 20, 30, 40};
+    // long arr2[] = { 1, 2 }; // cannot deduce
+    // auto f = 1;
+    // err, type deduction doesn't work
+    double g { compute() };
+    //int& ref { }; // error, cannot set ref to null!
+    int& refOk { zero };
+
+    ~S() { delete mem; }
+    double compute() { return a*b; }
+};
+\end{codeboxt}
+
+下面是小结：
+
+\begin{itemize}
+\item \texttt{zero} 使用的是值初始化（value initialization），因此会得到值 0；
+\item \texttt{a} 使用的是拷贝初始化（copy initialization）；
+\item \texttt{b} 使用的是直接列表初始化（direct list initialization）；
+\item \texttt{c} 会产生错误，因为 NSDMI 不允许使用带圆括号的直接初始化；
+\item \texttt{d} 通过读取 \texttt{zero} 和 \texttt{a} 来初始化，但由于 \texttt{d} 在数据成员列表中排在更后面，这是可以的，且顺序是明确定义的；
+\item \texttt{e} 则相反，它必须读取数据成员 \texttt{mem}，而 \texttt{mem} 可能尚未初始化（因为它在声明顺序中更靠后），因此这种行为是未定义的；
+\item \texttt{mem} 使用了内存分配，这也是可接受的（但请尽量远离原始的 \texttt{new} 和 \texttt{delete}，优先使用智能指针，这份代码仅用于演示）；
+\item \texttt{pInts} 声明了一个指向 10 个整数的数组的 \texttt{unique\_ptr}；
+\item \texttt{arr[4]} 声明并初始化了一个数组，但你需要提供元素个数，因为编译器无法推导它（正如 \texttt{arr2} 那样）；
+\item 类似地，我们可以对 \texttt{moreNumbers} 使用 \texttt{std::array<type, count>}，但我们需要提供元素个数与元素类型；
+\item \texttt{f} 也会产生错误，因为 \texttt{auto} 类型推导不起作用；
+\item \texttt{g} 调用了一个成员函数来计算值。只有当该函数读取的是已初始化的数据成员时，代码才合法；
+\item \texttt{ref} 被注释掉了，因为它无法编译；你不能把引用设为 null；
+\item 另一方面，\texttt{refOk} 是可能可接受的，并且能编译，因为它引用的是一个已存在的数据成员。
+\end{itemize}
+
+下面是一个简单的“演示”来测试 \texttt{S} 结构体：
+
+\begin{codeboxt}[cpp]{代码清单 8.4 NSDMI 的多种语法——演示。在 Compiler Explorer 上运行}
+void showProperties(std::string_view text, const S& s) {
+    std::cout << text << '\n';
+    std::cout << ".zero: " << s.zero << '\n';
+    std::cout << ".a:\n" << s.a << '\n';
+    std::cout << ".b:\n" << s.b << '\n';
+    std::cout << ".d:\n" << s.d << '\n';
+    std::cout << "*.mem: " << *s.mem << '\n';
+    std::cout << ".arr[0]: " << s.arr[0] << '\n';
+    std::cout << "g:\n" << s.g << '\n';
+}
+int main() {
+    S s;
+    // default initialization
+    showProperties("s", s);
+    S y { 1 }; // aggregate initialization
+    showProperties("y", y);
+}
+\end{codeboxt}
+
+第一个对象 \texttt{s} 使用默认初始化，它会给所有数据成员赋默认值。对于第二个对象 \texttt{y}，我只用了第一个实参进行聚合初始化（aggregate initialization），因此它只会设置 \texttt{S::zero} 数据成员。
+
+运行代码后，可以看到如下输出：
+
+\begin{codebox}[cpp]
+s
+.zero: 0
+.a:
+10
+.b:
+10.5
+.d:
+10
+*.mem: 10
+.arr[0]: 0
+g:
+105
+y
+.zero: 1
+.a:
+10
+.b:
+10.5
+.d:
+11
+*.mem: 11
+.arr[0]: 0
+g:
+105
+\end{codebox}
+
+把本节的知识用到我们的 \texttt{DataPacket} 类中，我们可以更“有创意”地写出下面的初始化器。这个版本只是早期尝试，并不完美，我们稍后会改进它。
+
+\begin{codeboxt}[cpp]{代码清单 8.5 初始化器中的依赖关系，可能有风险。在 Compiler Explorer 上运行}
+class DataPacket {
+    std::string data_ {"empty"};
+    size_t checkSum_ { calcCheckSum(data_) };
+    size_t serverId_ { 404 };
+    /* rest of the code*/
+\end{codeboxt}
+
+由于 \texttt{checkSum\_} 排在 \texttt{data\_} 之后，我们知道初始化的顺序，因此可以安全地使用 \texttt{data\_} 并将其传入 \texttt{calcCheckSum}。
+
+虽然这段代码能工作，且初始化顺序是明确定义的，但这种技巧在维护上可能有问题。如果你引入一个新的数据成员并调整类的各个部分顺序，可能会遇到新的 bug 和麻烦。对一些人来说，这种方法也往往更难阅读和理解。我在前面讲构造函数中常规初始化列表时，也提到过类似的疑难情况。
+
+这就是为什么最好避免这种依赖关系，改为这样写：
+
+\begin{codebox}[cpp]
+inline constexpr auto defaultData {"empty"};
+class DataPacket {
+    std::string data_ { defaultData };
+    size_t checkSum_ { calcCheckSum(defaultData) };
+\end{codebox}
+
+现在，默认值是什么一清二楚，初始化序列中也不存在依赖。这是修正后的版本\footnote{\url{https://godbolt.org/z/9vezbWfbs}}。我们会在单独的章节中讨论 \texttt{inline} 变量。
+
+\section{拷贝构造函数与 NSDMI}
+
+编译器会在所有构造函数中初始化字段，包括拷贝构造函数和移动构造函数（move constructor）。但是，当拷贝或移动构造函数是默认（default）的时候，就不需要执行那次额外的初始化。
+
+现在，让我们给前面的例子加上拷贝构造函数：
+
+\begin{codeboxt}[cpp]{代码清单 8.6 拷贝构造函数与 NSDMI。在 Compiler Explorer 上运行}
+#include <iostream>
+#include <string>
+int initA() {
+    std::cout << "initA() called\n";
+    return 1;
+}
+std::string initB() {
+    std::cout << "initB() called\n";
+    return "World";
+}
+struct SimpleType {
+    int a { initA() };
+    std::string b { initB() };
+    SimpleType() { }
+    explicit SimpleType(std::string s) : b(std::move(s)) { }
+    SimpleType(const SimpleType& other) {
+        std::cout << "copy ctor\n";
+        a = other.a;
+        b = other.b;
+    };
+};
+int main() {
+    SimpleType t1;
+    std::cout << "SimpleType t2 = t1:\n";
+    SimpleType t2 = t1;
+}
+\end{codeboxt}
+
+运行后，可以看到如下输出：
+
+\begin{codebox}[cpp]
+initA() called
+initB() called
+SimpleType t2 = t1:
+initA() called
+initB() called
+copy ctor
+\end{codebox}
+
+在上面的例子中，编译器用默认值初始化了字段。我们可以看到，\texttt{initA()} 和 \texttt{initB()} 恰好在 \texttt{copy ctor} 信息之前被调用。
+
+这就是为什么最好在拷贝构造函数内部使用初始化列表：
+
+\begin{codebox}[cpp]
+SimpleType(const SimpleType& other) : a(other.a), b(other.b) {
+    std::cout << "copy ctor\n";
+};
+\end{codebox}
+
+现在我们会得到如下输出：
+
+\begin{codebox}[cpp]
+SimpleType t1:
+initA() called
+initB() called
+SimpleType t2 = t1:
+copy ctor
+\end{codebox}
+
+如果你依赖编译器生成的默认拷贝构造函数，也会发生同样的情况（当然，这次你不会看到输出）。
+
+\begin{codebox}[cpp]
+SimpleType(const SimpleType& other) = default;
+\end{codebox}
+
+可在此处查看可运行代码\footnote{\url{https://godbolt.org/z/jM8863Wo3}}。
+
+\section{移动构造函数与 NSDMI}
+
+我们可以通过移动构造函数观察到类似的效果：
+
+\begin{codeboxt}[cpp]{代码清单 8.7 NSDMI 与移动构造函数。在 Compiler Explorer 上运行}
+#include <iostream>
+#include <string>
+int initA() {
+    std::cout << "initA() called\n";
+    return 1;
+}
+std::string initB() {
+    std::cout << "initB() called\n";
+    return "World";
+}
+struct SimpleType {
+    int a { initA() };
+    std::string b { initB() };
+    SimpleType() { }
+    explicit SimpleType(std::string s) : b(std::move(s)) { }
+    SimpleType(const SimpleType& other) = default;
+    SimpleType(SimpleType&& other) { // only for illustration
+        std::cout << "move ctor\n";
+        a = std::move(other.a);
+        b = std::move(other.b);
+    };
+};
+int main() {
+    std::cout << "SimpleType t1:\n";
+    SimpleType t1;
+    std::cout << "SimpleType t2 = t1:\n";
+    SimpleType t2 = std::move(t1);
+}
+\end{codeboxt}
+
+运行代码时，你会看到 \texttt{initA()} 和 \texttt{initB()} 也只在移动构造函数的开头被调用：
+
+\begin{codebox}[cpp]
+SimpleType t1:
+initA() called
+initB() called
+SimpleType t2 = t1:
+initA() called
+initB() called
+move ctor
+\end{codebox}
+
+这可以通过写一个默认移动构造函数来修复：
+
+\begin{codebox}[cpp]
+SimpleType(SimpleType&&) = default;
+\end{codebox}
+
+或者：
+
+\begin{codebox}[cpp]
+SimpleType(SimpleType&& other) noexcept
+: a(std::move(other.a)), b(std::move(other.b)) { }
+\end{codebox}
+
+现在你可以试着修改上面的代码示例，看看改变移动构造函数是否能减少 \texttt{initA()} 和 \texttt{initB()} 的调用次数。
+
+\section{C++14 的变化}
+
+最初，在 C++11 中，如果你使用了默认成员初始化（default member initialization），你的类就会失去“聚合体（aggregate）”身份：
+
+\begin{codebox}[cpp]
+struct Point { float x = 1.0f; float y = 2.0f; };
+// won't compile in C++11
+Point myPt { 10.0f, 11.0f };
+\end{codebox}
+
+幸运的是，在 C++14 中，这个限制被取消了，上面这行代码可以编译通过。\texttt{Point} 结构体的聚合体身份得以保留。你可以在下面查看并试验完整代码：
+
+\begin{codeboxt}[cpp]{代码清单 8.8 C++14 中的聚合体与 NSDMI。在 Compiler Explorer 上运行}
+#include <iostream>
+struct Point { float x = 1.0f; float y = 2.0f; };
+int main() {
+    Point myPt { 10.0f };
+    std::cout << myPt.x << ", " << myPt.y << '\n';
+}
+\end{codeboxt}
+
+\section{C++20 的变化}
+
+自 C++11 起，代码只考虑“常规”字段……那类中的位字段（bit field）呢？例如：
+
+\begin{codebox}[cpp]
+class Type {
+    int value : 4;
+};
+\end{codebox}
+
+遗憾的是，在 C++11 中，无法对 \texttt{value} 这个位字段进行默认初始化。然而，使用符合 C++20 的编译器，你可以这样写：
+
+\begin{codeboxt}[cpp]{代码清单 8.9 C++20 中的位字段与 NSDMI。在 Compiler Explorer 上运行}
+#include <iostream>
+struct Type {
+    int value : 4 = 1;
+    int second : 4 { 2 };
+};
+int main() {
+    Type t;
+    std::cout << t.value << '\n';
+    std::cout << t.second << '\n';
+}
+\end{codeboxt}
+
+如上面所示，C++20 提供了改进后的语法，可以在位大小之后指定默认值：\texttt{var : bit\_count \{ default\_value \}}。
+
+\section{NSDMI 的限制}
+
+在本节中，我们将讨论非静态数据成员初始化（目前截至 C++20）的限制。
+
+\subsection{auto 类型推导的情形}
+
+既然我们可以在类内部声明并初始化变量，那我们还能/是否仍可以使用 \texttt{auto}？这看起来很自然，并且遵循 AAA（Almost Always Auto，几乎总是用 auto）法则。
+
+\begin{myInfoBox}
+Almost Always Auto 法则：这个术语由 Herb Sutter 提出。它建议使用 auto 类型推导，而不是写出显式类型。参见博文 GotW \#94 解答：AAA 风格（Almost Always Auto）\footnote{\url{https://herbsutter.com/2013/08/12/gotw-94-solution-aaa-style-almost-always-auto/}}。
+\end{myInfoBox}
+
+你可以对静态变量使用 \texttt{auto}：
+
+
+\begin{codebox}[cpp]
+class Type {
+    static inline auto theMeaningOfLife = 42; // int deduced
+};
+\end{codebox}
+
+但是，你不能把它用作类的非静态成员：
+
+\begin{codebox}[cpp]
+class Type {
+    auto myField { 0 };
+    // error
+    auto param { 10.5f }; // error
+};
+\end{codebox}
+
+替代语法同样会失败：
+
+\begin{codebox}[cpp]
+class Type {
+    auto myField = int { 10 };
+};
+\end{codebox}
+
+遗憾的是，\texttt{auto} 不受支持。例如在 GCC 中，我会得到：
+
+\begin{codebox}[cpp]
+error: non-static data member declared with placeholder 'auto'
+\end{codebox}
+
+对于静态数据成员，编译器很容易推导出其类型，因为初始化发生在你声明它的地方。然而，对常规数据成员来说这是不可能的，因为初始化器可能来自默认成员初始化，也可能来自构造函数（当你覆盖默认值时）。
+
+\subsection{类模板实参推导（CTAD）的情形}
+
+与 \texttt{auto} 类似，非静态成员变量和类模板实参推导（CTAD）也有其限制。
+
+CTAD 自 C++17 起可用，它允许你在定义类模板对象时不指定模板实参。例如：
+
+\myGraphic{0.9}{images/fig_p141_1.png}{（CTAD 示意）}
+
+\begin{codebox}[cpp]
+std::pair<double, int> myPair(10.5, 42);
+std::vector<float> numbers { 1.1f, 2.2f, 3.3f };
+std::array<double, 3> doubles { 1.1, 2.2, 3.3 };
+\end{codebox}
+
+在 C++17 中，我们可以这样写：
+
+\begin{codebox}[cpp]
+std::pair myPair(10.5, 42);
+std::vector numbers { 1.1f, 2.2f, 3.3f };
+std::array doubles { 1.1, 2.2, 3.3 };
+\end{codebox}
+
+编译器会为 \texttt{std::pair}、\texttt{std::vector} 和 \texttt{std::array} 推导出正确的模板实参。
+
+这个新的功能对类的静态数据成员工作得很好：
+
+\begin{codebox}[cpp]
+class Type {
+    static inline std::vector ints { 1, 2, 3, 4, 5 }; // deduced vector<int>
+};
+\end{codebox}
+
+但是，作为非静态成员它就不起作用了：
+
+\begin{codebox}[cpp]
+class Type {
+    std::vector ints { 1, 2, 3, 4, 5 }; // error!
+};
+\end{codebox}
+
+在 GCC 10.0 上，我会得到：
+
+\begin{codebox}[cpp]
+error: 'vector' does not name a type
+\end{codebox}
+
+希望这里提出的这两个问题都不是什么大障碍，但最好对它们有所了解。
+
+\myGraphic{0.9}{images/fig_p142_1.png}{（NSDMI 限制示意）}
+
+\subsection[直接初始化与圆括号的情形]{直接初始化与圆括号的情形\protect\footnote{感谢 Nicolai Josuttis 讨论并澄清了这个话题。}}
+
+我把 NSDMI 应用到 \texttt{DataPacket} 类，并把 \texttt{data\_} 初始化为 \texttt{"empty"}。
+
+\begin{codebox}[cpp]
+class DataPacket {
+    std::string data_ {"empty"};
+    // .. the rest...
+\end{codebox}
+
+如果我想让 \texttt{data\_} 用 40 个星号 \texttt{*} 来初始化呢？我可以写出很长的字符串，或者使用 \texttt{std::string} 某个接受“计数 + 字符”的构造函数。然而，由于 \texttt{std::string} 中存在一个优先级的 \texttt{std::initializer\_list} 构造函数，你需要使用带圆括号的直接初始化来调用正确的版本：
+
+\begin{codeboxt}[cpp]{代码清单 8.10 带圆括号的直接初始化与 std::string。在 Compiler Explorer 上运行}
+#include <iostream>
+int main() {
+    std::string stars(40, '*');
+    // parens
+    std::string moreStars{40, '*'}; // <<
+    std::cout << stars << '\n';
+    std::cout << moreStars << '\n';
+}
+\end{codeboxt}
+
+如果你运行代码，会看到如下输出：
+
+\begin{codebox}[cpp]
+****************************************
+(*
+\end{codebox}
+
+这是因为 \texttt{\{40, '*'\}} 会把 40 转换成一个字符 \texttt{*}（使用其 ASCII 码），然后通过 \texttt{std::initializer\_list} 把这两个字符传进去，从而创建一个只含两个字符的字符串。问题在于，带圆括号的直接初始化在类的成员声明中无法使用：
+
+\begin{codebox}[cpp]
+class DataPacket {
+    std::string data_ (40, '*'); // syntax error!
+    size_t checkSum_ { calcCheckSum(data_) };
+    size_t serverId_ { 404 };
+    /* rest of the code*/
+\end{codebox}
+
+这段代码无法编译，要修复它，你可以依赖拷贝初始化：
+
+\begin{codebox}[cpp]
+class DataPacket {
+    std::string data_ = std::string(40, '*'); // fine
+    size_t checkSum_ { calcCheckSum(data_) };
+    size_t serverId_ { 404 };
+    /* rest of the code*/
+\end{codebox}
+
+这个限制与以下事实有关：圆括号语法很快就会陷入最棘手的解析（most vexing parse）问题，对类成员来说更糟。
+
+本书中有一整节专门讲 \texttt{std::initializer\_list}，分享了关于这个辅助库类型优缺点的更多信息。
+
+其他构造函数类型又如何呢？我们将在下一节介绍。
+
+\section{NSDMI：优点与缺点}
+
+让我们总结一下非静态数据成员初始化。
+
+\subsection{NSDMI 的优点}
+
+对 Modern C++ 来说，使用 NSDMI 显然是个明确的赢家。以下是它如此有用的主要原因：
+
+\begin{itemize}
+\item 它写起来很简单。
+\item 你可以确保每个成员都被正确初始化。
+\item 声明和默认值在同一个地方，因此更容易维护。
+\item 要遵守“每个变量都应被初始化”的规则容易得多。
+\item 当我们有多个构造函数时它很有帮助。以前，我们不得不为成员复制初始化代码，或者写一个像 \texttt{InitMembers()} 这样的自定义方法，在构造函数中调用。现在，你可以做默认初始化，构造函数只做它们各自特定的工作。
+\end{itemize}
+
+\subsection{NSDMI 有什么缺点吗？}
+
+另一方面，这个特性也有一些限制和不便之处：
+
+\begin{itemize}
+\item 使用 NSDMI 会使一个类变得非平凡（non-trivial），因为（编译器生成的）默认构造函数必须执行一些工作来初始化数据成员。
+\item 性能：当你有性能关键的数据结构（例如一个 \texttt{Vector3D} 类）时，你可能想要一段“空”的初始化代码。你冒着数据成员未初始化的风险，但可能省下几条 CPU 指令。
+\item （仅到 C++14 为止）在 C++11 中 NSDMI 会让一个类变成非聚合体。参见关于 C++14 变化的小节。
+\item 在 \texttt{auto} 类型推导和 CTAD 的情形下它们有限制，所以你需要显式提供数据成员的类型。
+\item 你不能使用带圆括号的直接初始化；要修复它，你需要对数据成员使用列表初始化或拷贝初始化语法。
+\item 由于默认值在头文件中，任何改动都可能要求重新编译依赖的编译单元。而如果值只在实现文件中设置，则不会有这个问题。
+\item 如果你依赖调用成员函数或依赖其他数据成员，可能很难阅读。
+\end{itemize}
+
+\section{NSDMI 小结}
+
+在 C++11 之前，初始化数据成员的最佳方式是通过构造函数内的成员初始化列表。得益于 C++11，我们现在可以在声明数据成员的地方初始化它们，而且初始化发生在构造函数体开始执行之前。这种方式让数据成员更难停留在未初始化状态。在许多情况下，它也减少了编写仅用于设置默认值的用户定义构造函数的需要。
+
+在本章中，我们介绍了语法、它如何与各类构造函数协作，以及它的限制。你还看到了 C++14（聚合体类）中的改动，以及 C++20 中修复的缺失的位字段初始化。
+
+C++ Core Guidelines 建议在至少两处使用 NSDMI：C++ Core Guidelines——C.48\footnote{\url{https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines\#c48-prefer-in-class-initializers-to-member-initializers-in-}}：
+
+C.48 对于常量初始化器，优先使用类内初始化器而非构造函数中的成员初始化器：
+
+理由：明确说明所有构造函数都期望使用同一个值。避免重复。避免维护问题。它能带来最精简、最高效的代码。
+
+以及在 C++ Core Guidelines——C.45\footnote{\url{https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines\#c45-dont-define-a-default-constructor-that-only-initializes-data-members-use-in-class-member-initializers-instead}}：
+
+C.45 不要定义只初始化数据成员的默认构造函数；应改用类内成员初始化器
+
+理由：使用类内成员初始化器可以让编译器为你生成该函数。编译器生成的函数可能更高效。
+
+\begin{myInfoBox}
+如果你想深入了解 NSDMI，我强烈推荐阅读《Embracing Modern C++ Safely》一书的第 2 章第 318 页。那里有一整节专门讲解这个强大的 C++ 特性的高级用法。
+\end{myInfoBox}
+

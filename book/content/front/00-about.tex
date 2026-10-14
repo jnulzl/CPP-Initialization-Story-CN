@@ -1,0 +1,163 @@
+C++ 中的初始化（initialization）是一个热门话题！网上到处都在讨论最佳实践，甚至还有关于这个主题的搞笑梗图。这种情况并不奇怪，因为初始化一个简单的整数值就有十几种方式，再加上类型自动推导、数据成员（data member）以及对象生命期（object lifetime）的种种微妙规则。
+
+本书便应运而生。
+
+阅读全文，你将学习在现代 C++（Modern C++）中初始化各类变量和数据成员的可行方案。具体来说，本书讲解多种初始化方式、构造函数（constructor）、非静态数据成员初始化（non-static data member initialization，NSDMI）、内联变量（inline variable）、指定初始化器（designated initializer）等内容。此外，你还能看到从 C++11 到 C++20 的变化与新技巧，以及大量示例来巩固你的理解。
+
+我们的计划是讲解（即便不是全部，也几乎是）初始化的各个部分，学习大量优秀的 C++ 技巧，并窥探底层到底发生了什么。
+
+\section{为什么要读这本书？}
+
+自 C++11 以来，现代 C++ 为我们提供了许多新特性来简化工作、精简代码。其中一个改进领域正是初始化。现代 C++ 引入了新的初始化规则，在保留旧有行为并保持兼容性的同时（主要兼容 C 语言），试图让初始化变得简单。不过，这些规则有时看似令人困惑且复杂，甚至连 ISO 委员会也会在过程中修正某些内容。本书将帮助你理清这些原则，并更好地理解这一主题。更重要的是，初始化只是本书的一个方面。你还会学到围绕类、构造函数、析构函数（destructor）、对象生命期，甚至编译器如何在启动时处理数据的所有相关话题。
+
+\section{学习目标}
+
+本书的目标是让你掌握以下知识：
+
+\begin{itemize}
+\item 解释对象初始化的规则，包括普通变量、数据成员以及非局部对象。
+\item 如何实现特殊成员函数（special member function）（构造函数、析构函数、拷贝/移动操作），以及它们何时能派上用场。
+\item 如何利用 C++11 的特性（如非静态数据成员初始化、继承构造函数（inheriting constructor）和委托构造函数（delegating constructor））高效地初始化非静态数据成员。
+\item 如何借助 C++17 的内联变量（inline variable）来简化静态变量（static variable）与静态数据成员（static data member）的使用。
+\item 如何处理容器式成员、不可拷贝的数据成员（如 \texttt{const} 数据成员）或仅可移动的数据成员，甚至是 lambda 表达式。
+\item 什么是聚合体（aggregate），以及如何用 C++20 的指定初始化器来创建这类对象。
+\end{itemize}
+
+\section{本书结构}
+
+本书共 14 章，结构如下：
+
+\begin{itemize}
+\item 第 1 章至第 5 章为全书其余部分奠定基础，涵盖基础初始化规则、构造函数、析构函数以及数据成员基础。
+\item 第 6 章是关于构造函数的小测验（quiz），你可以检验自己从本书"第一部分"学到的知识。
+\item 第 7 章（撰写中）：类型推导（type deduction）。
+\item 第 8 章讲解非静态数据成员初始化（NSDMI），这是 C++11 中一项强大的特性，改进了我们处理数据成员的方式。章末可以做一些练习。
+\item 第 9 章讨论如何初始化容器式数据成员。
+\item 第 10 章介绍非规则数据成员（non-regular data member）的信息，以及如何在类中处理它们。你将学到 \texttt{const} 数据成员、作为数据成员的 \texttt{unique\_ptr} 以及引用。
+\item 第 11 章讲解静态非局部变量、静态对象、各种存储期（storage duration）选项，以及 C++17 的内联变量（\texttt{inline} variable）和 C++20 的 \texttt{constinit}。
+\item 第 12 章转向 C++20，讲解指定初始化器（designated initializer），这一便利特性脱胎于 C 语言中的类似功能。
+\item 第 13 章展示多种技巧，例如向构造函数传入字符串、强类型（strong typing）、CRTP 类计数器、拷贝并交换（copy and swap）惯用法等。
+\item 第 14 章是最后的小测验，题目覆盖全书内容。
+\end{itemize}
+
+此外还有两个附录：
+
+\begin{itemize}
+\item 附录 A —— 关于编译器生成的特殊成员函数（special member function）规则的手册。
+\item 附录 B —— 测验与练习的答案。
+\end{itemize}
+
+\section{本书适合谁？}
+
+本书面向想要学习现代 C++（从 C++11 到 C++20）中初始化各个方面的初/中级 C++ 程序员。
+
+你至少应当了解创建和使用自定义类的一些基础知识。
+
+本书对于有经验的程序员同样有帮助，他们熟悉较早的 C++ 标准，并希望迁移到 C++17/C++20。
+
+\section{先决条件}
+
+\begin{itemize}
+\item 你应当具备 C++ 表达式和原始类型（primitive type）的基础知识。
+\item 你应当能够实现带有若干数据成员的基础类，并掌握以基本方式创建和操作该类对象的方法。
+\end{itemize}
+
+\section{读者反馈与勘误}
+
+如果你发现错误、笔误、语法问题，或任何其他（尤其是逻辑上的！）应当纠正的地方，请将反馈发送至 bartek@cppstories.com。
+
+以下是勘误（errata）及修复列表：
+
+\url{https://www.cppstories.com/p/cppinitbook/}
+
+你的反馈很重要！写下诚实的评价有助于本书的宣传，也能提升我后续工作的质量。
+
+此外，本书在 GoodReads 上有专门的页面。请在以下位置分享你的反馈：
+
+Bartłomiej Filipek 所著的 \emph{C++ Initialization Story}\footnote{\url{https://www.goodreads.com/book/show/62606823-c-initialization-story}}。
+
+\section{示例代码}
+
+你可以在这个独立的 GitHub 公开仓库中找到所有示例的源代码。
+
+稍后给出链接
+
+你可以浏览单个文件，或下载整个分支：
+
+稍后给出链接
+
+\section{代码许可证}
+
+本书的代码采用知识共享许可证（Creative Commons License）。
+
+\section{排版约定}
+
+代码示例以等宽字体呈现，类似下面的例子：
+
+对于较长的示例：
+
+\begin{codebox}[cpp]
+#include <iostream>
+int main() {
+const std::string text { "Hello World" };
+std::cout << text << '\n';
+}
+\end{codebox}
+
+较短的代码片段（没有标题，有时会省略 \texttt{include} 语句）：
+
+\begin{codebox}[cpp]
+int foo() {
+return std::clamp(100, 1000, 1001);
+}
+\end{codebox}
+
+在条件允许时，你还会看到在线编译器的链接，可以在其中把玩这些代码。例如：
+
+\begin{codeboxt}[cpp]{示例标题（在 Compiler Explorer 上运行）}
+#include <iostream>
+int main() {
+std::cout << "Hello World!";
+}
+\end{codeboxt}
+
+你可以点击标题中的链接，它应当会打开相应在线编译器的网站（上例中即为 Compiler Explorer）。你能在浏览器中编译示例、查看输出，并直接对代码做实验。下面是对 Compiler Explorer 的基本介绍：
+
+A Compiler Explorer layout used in the book
+
+较长的程序片段通常会被精简，只展示核心机制。
+
+\section{语法高亮的限制}
+
+本书的当前版本在语法高亮方面可能存在一些限制。例如：
+
+\begin{itemize}
+\item \texttt{if constexpr} —— 相关 Pygments 议题：C++ if constexpr 未被识别（C++17），议题 \#1136\footnote{\url{https://github.com/pygments/pygments/issues/1136}}。
+\item 类的第一个方法没有被高亮 —— First method of class not highlighted in C++，议题 \#791\footnote{\url{https://github.com/pygments/pygments/issues/791}}。
+\end{itemize}
+
+\myGraphic{0.9}{images/fig_p011_1.png}{}
+
+\begin{itemize}
+\item 模板方法没有被高亮 —— C++ 词法分析器在返回类型为模板时无法识别函数，议题 \#1138\footnote{\url{https://github.com/pygments/pygments/issues/1138}}。
+\item 现代 C++ 的属性（attribute）有时无法被正确识别。
+\end{itemize}
+
+其他关于 C++ 与 Pygments 的议题：C++ Issues · github/pygments/pygments\footnote{\url{https://github.com/pygments/pygments/issues?q=is\%3Aissue+is\%3Aopen+C\%2B\%2B}}。
+
+\section{特殊栏目}
+
+在全书各处，你还会看到以下三种栏目：
+
+\begin{myInfoBox}
+这是一个信息框（Information Box），包含与当前小节相关的补充说明。
+\end{myInfoBox}
+
+\begin{myWarnBox}
+这是一个警告框（Warning Box），包含某个主题潜在的风险与威胁。
+\end{myWarnBox}
+
+\begin{myQuote}
+这是一个引用框（Quote Box）。在书中，它常用于引用 C++ 标准（C++ Standard）。
+\end{myQuote}
+

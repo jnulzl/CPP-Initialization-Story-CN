@@ -1,0 +1,66 @@
+% =============================================================================
+%  封面（Cover）—— 沿用原书封面配色与版式（C++ Stories 系列），中文版
+%  · 色带取样自原书第 1 页：#0075B6 顶/底条 · #005180 暗带 · #3DA2D9 标题亮带
+%  · 暗带叠一层原书那样的「代码关键字」淡纹理
+%  · 用 remember picture / overlay 满版绘制，不受版心影响
+% =============================================================================
+\thispagestyle{empty}
+
+\begin{tikzpicture}[remember picture, overlay]
+  \definecolor{covTop}{HTML}{0075B6}
+  \definecolor{covDark}{HTML}{005180}
+  \definecolor{covBright}{HTML}{3DA2D9}
+
+  % ---------- 色带（按原书比例换算到本页高 628.83bp） ----------
+  \fill[covTop]
+    (current page.north west) rectangle ([yshift=-32.6bp]current page.north east);
+  \fill[covDark]
+    ([yshift=-32.6bp]current page.north west) rectangle ([yshift=-223.4bp]current page.north east);
+  \fill[covBright]
+    ([yshift=-223.4bp]current page.north west) rectangle ([yshift=-409.3bp]current page.north east);
+  \fill[covDark]
+    ([yshift=-409.3bp]current page.north west) rectangle ([yshift=-599.1bp]current page.north east);
+  \fill[covTop]
+    ([yshift=-599.1bp]current page.north west) rectangle (current page.south east);
+
+  % ---------- 暗带上的代码关键字淡纹理（仿原书） ----------
+  \foreach \yy in {48,60,72,84,96,108,120,132,144,156,168,180,192,204,216,
+                   425,437,449,461,473,485,497,509,521,533,545,557,569,581,593}{
+    \node[anchor=west, text=black, opacity=0.10,
+          font=\ttfamily\fontsize{8bp}{8bp}\selectfont]
+      at ([xshift=-6bp, yshift=-\yy bp]current page.north west)
+      {static public protected delete explicit default define constexpr virtual
+       inline static public protected delete explicit default define constexpr
+       virtual inline static public protected delete explicit default define};
+  }
+
+  % ---------- 系列标识（顶部色条） ----------
+  \node[anchor=center, text=white, font=\sffamily\bfseries\fontsize{10bp}{12bp}\selectfont]
+    at ([yshift=-16.3bp]current page.north) {C++ STORIES};
+
+  % ---------- 主标题（亮蓝色带） ----------
+  \node[anchor=center, text=covDark, font=\sffamily\bfseries\fontsize{36bp}{42bp}\selectfont]
+    at ([yshift=-288bp]current page.north) {C++ 初始化全解};
+  \node[anchor=center, text=covDark, font=\sffamily\bfseries\fontsize{16bp}{20bp}\selectfont]
+    at ([yshift=-336bp]current page.north) {C++ Initialization Story};
+
+  % ---------- 副标题与作者（下部暗带） ----------
+  \node[anchor=center, text=white, font=\sffamily\fontsize{15bp}{19bp}\selectfont]
+    at ([yshift=-466bp]current page.north) {遍历所有初始化选项与相关 C++ 领域};
+  \node[anchor=center, text=white, font=\sffamily\fontsize{11bp}{14bp}\selectfont]
+    at ([yshift=-500bp]current page.north)
+    {A Guide Through All Initialization Options and Related C++ Areas};
+  \node[anchor=center, text=white, font=\sffamily\fontsize{12.5bp}{16bp}\selectfont]
+    at ([yshift=-556bp]current page.north) {Bartłomiej Filipek\quad 著};
+  \node[anchor=center, text=white, font=\sffamily\fontsize{10bp}{13bp}\selectfont]
+    at ([yshift=-582bp]current page.north) {中文翻译版};
+
+  % ---------- 底部色条 ----------
+  \node[anchor=west, text=white, font=\sffamily\fontsize{9.5bp}{12bp}\selectfont]
+    at ([xshift=28bp, yshift=-614bp]current page.north west) {cppstories.com};
+  \node[anchor=east, text=white, font=\sffamily\fontsize{9.5bp}{12bp}\selectfont]
+    at ([xshift=-28bp, yshift=-614bp]current page.north east) {Bartłomiej Filipek};
+\end{tikzpicture}
+
+\null
+\clearpage

@@ -1,0 +1,335 @@
+恭喜你读完了整本书！现在你可以检验一下自己的知识，试着回答几道小测验（quiz）问题并完成一些练习。
+
+\subsection{1. 哪个 C++ 标准引入了类内默认成员初始化器？}
+
+\begin{enumerate}
+\item C++98
+\item C++11
+\item C++14
+\item C++17
+\end{enumerate}
+
+\subsection{2. 你可以对非静态数据成员使用 auto 类型推导吗？}
+
+\begin{enumerate}
+\item 可以，自 C++11 起
+\item 不可以
+\item 可以，自 C++20 起
+\end{enumerate}
+
+\subsection{3. 你需要在 cpp 文件中定义静态内联（inline）数据成员吗？}
+
+\begin{enumerate}
+\item 不需要，定义就发生在声明该静态内联成员的同一位置。
+\item 需要，编译器需要在 cpp 文件中提供定义。
+\item 需要，编译器需要在使用该变量的所有翻译单元中都提供定义。
+\end{enumerate}
+
+\subsection{4. 静态内联变量可以是非常量吗？}
+
+\begin{enumerate}
+\item 可以，它就是一个普通变量。
+\item 不可以，内联变量必须是常量。
+\end{enumerate}
+
+\subsection{5. 下面这段代码的输出是什么：}
+
+\begin{codebox}[cpp]
+struct S {
+int a { 10 };
+int b { 42 };
+};
+S s { 1 };
+std::cout << s.a << ", " << s.b;
+\end{codebox}
+
+\begin{enumerate}
+\item 1, 0
+\item 10, 42
+\item 1, 42
+\end{enumerate}
+
+\subsection{6. 考虑以下代码：}
+
+\begin{codebox}[cpp]
+class C {
+C(int x) : a(x) { }
+int a { 10 };
+int b { 42 };
+};
+C c(0);
+\end{codebox}
+
+请选择正确的说法：
+
+\begin{enumerate}
+\item \texttt{C::a} 被初始化两次。第一次它用 \texttt{10} 初始化，之后在构造函数中又用 \texttt{0} 初始化。
+\item \texttt{C::a} 只在构造函数中用 \texttt{0} 初始化一次。
+\item 代码无法编译，因为编译器无法决定如何初始化 \texttt{C::a} 成员。
+\end{enumerate}
+
+\subsection{7. 从构造函数中抛出异常时会发生什么？}
+
+\begin{enumerate}
+\item 该对象被视为“已创建”，因此它会遵循对象的常规生命期。
+\item 该对象被视为“部分创建”，因此编译器不会调用它的析构函数。
+\item 编译器会调用 \texttt{std::terminate}，因为你不能从构造函数中抛出异常。
+\end{enumerate}
+
+\subsection{8. 编译这段代码时会发生什么？}
+
+\begin{codebox}[cpp]
+class Point { int x; int y; };
+Point pt {.y = 10, .x = 11 };
+std::cout << pt.x << ", " << pt.y;
+\end{codebox}
+
+请选择正确的说法：
+
+\begin{enumerate}
+\item 代码无法编译。指定初始化器（designated initializer）必须与 \texttt{Point} 类中数据成员的顺序一致。
+\item 代码可以编译，并输出 \texttt{11, 10}。
+\item 代码可以编译，并输出 \texttt{10, 11}。
+\end{enumerate}
+
+\subsection{9. 这段代码能在 C++11 中工作吗？}
+
+\begin{codebox}[cpp]
+struct User { std::string name = "unknown"; unsigned age { 0 }; };
+User u { "John", 101 };
+\end{codebox}
+
+\begin{enumerate}
+\item 可以，代码在 C++11 模式下能编译。
+\item 代码从 C++14 模式起才能编译。
+\item 即便在 C++20 中，代码也无法编译。
+\end{enumerate}
+
+\subsection{10. 下面的 \texttt{struct} 是否拥有编译器生成的拷贝构造函数？}
+
+\begin{codebox}[cpp]
+struct Test {
+Test() = default;
+Test(Test&& t) { /* 某个实现 */ }
+int val { 10 };
+};
+\end{codebox}
+
+\begin{enumerate}
+\item 有，它是一个简单的类类型，因此拷贝构造函数会被隐式定义。
+\item 没有，该类声明了用户定义的移动构造函数，这会阻止隐式拷贝构造函数。
+\item 没有，该类声明了默认构造函数，这会阻止隐式拷贝构造函数。
+\end{enumerate}
+
+\subsection{11. 假设你有 \texttt{std::map<string, int> m;}。请从下列关于下面这个循环的说法中选出唯一正确的一项：}
+
+\begin{codebox}[cpp]
+for (const pair<string, int>& elem : m)
+\end{codebox}
+
+\begin{enumerate}
+\item 该循环正确地遍历 map，不会产生额外的拷贝。
+\item 由于 \texttt{elem} 的类型不匹配，该循环会为 map 中的每个元素创建一份拷贝。
+\item 代码无法编译，因为 \texttt{const pair} 无法绑定到 map。
+\end{enumerate}
+
+\subsection{12. 根据 C++20，\texttt{auto x \{ 42 \};} 与 \texttt{auto z = \{ 42 \};} 是否相同？}
+
+\begin{enumerate}
+\item 相同，\texttt{x} 与 \texttt{z} 的类型都是 \texttt{int}。
+\item 相同，\texttt{x} 与 \texttt{z} 的类型都是 \texttt{int \&\&}。
+\item 不同，\texttt{x} 的类型是 \texttt{int}，但 \texttt{z} 的类型是 \texttt{initializer\_list<int>}。
+\end{enumerate}
+
+\subsection{13. 考虑以下代码并选出正确的说法：}
+
+\begin{codebox}[cpp]
+std::optional<std::complex<double>> opt1{std::complex<double>{0, 1}};
+std::optional<std::complex<double>> opt2{std::in_place_t, 0, 1};
+\end{codebox}
+
+\begin{enumerate}
+\item \texttt{opt1} 的初始化效率较低，因为我们必须创建一个临时对象，而 \texttt{opt2} 不使用任何临时对象。
+\item \texttt{opt1} 的初始化与 \texttt{opt2} 一样高效；不会创建额外的拷贝。
+\item 你不能在创建 \texttt{std::optional} 时使用 \texttt{in\_place\_t}。
+\end{enumerate}
+
+\subsection{14. Mayer 的单例（singleton）在 C++03 中安全吗？请选择最匹配的说法。}
+
+\begin{enumerate}
+\item 安全，它在函数作用域中使用静态变量，因此编译器会确保它在首次使用前完成初始化。
+\item 安全，C++03 同时保证了线程安全与一次性初始化。
+\item 不安全，只有 C++11 才为静态局部变量引入了线程安全，因此该单例模式只有从 C++11 起才是安全的。
+\end{enumerate}
+
+\subsection{15. 下面这条语句能编译吗？}
+
+\begin{codebox}[cpp]
+std::vector<std::unique_ptr<int>> ints {
+std::make_unique<int>(1), std::make_unique<int>(2)
+};
+\end{codebox}
+
+\begin{enumerate}
+\item 不能，它无法编译，因为我们要为不可拷贝类型（\texttt{unique\_ptr}）使用一个 \texttt{initializer\_list}，而 \texttt{initializer\_list} 需要拷贝。
+\item 能，它可以编译，因为 \texttt{initializer\_list} 能处理不可拷贝类型。
+\item 能，它可以编译，因为编译器可以消除那些额外的拷贝。
+\end{enumerate}
+
+请写下你的答案，并在附录 B 中核对。
+
+\section{练习}
+
+用四个编程练习来检验你的技能。
+
+\subsection{练习 1：NSDMI}
+
+下面是一个包含两个数据成员的 \texttt{Point} 类声明。
+
+\begin{codebox}[cpp]
+struct Point {
+double x;
+double y;
+};
+\end{codebox}
+
+更新这个类，让它使用 NSDMI，并将 \texttt{Point::x} 初始化为 \texttt{1.0}、将 \texttt{Point::y} 初始化为 \texttt{2.0}。
+
+下面是测试用例的代码：
+
+\begin{codebox}[cpp]
+TEST(PointTest, X) {
+Point p;
+EXPECT_DOUBLE_EQ(1.0, p.x);
+}
+TEST(PointTest, Y) {
+Point p;
+EXPECT_DOUBLE_EQ(2.0, p.y);
+}
+\end{codebox}
+
+你可以用下面这个 Compiler Explorer 上的解答来练习：Point tests @Compiler Explorer\footnote{\url{https://godbolt.org/z/Gor1Y8qx7}}。
+
+运行时你会看到测试失败：
+
+你的任务是改进代码，让测试通过：
+
+\myGraphic{0.9}{images/fig_p258_1.png}{}
+
+\subsection{练习 2：NSDMI}
+
+我们再试另一个用例。下面是一个名为 \texttt{SalesRecord} 的结构体。
+
+\begin{codebox}[cpp]
+#include <string>
+constexpr unsigned int DEFAULT_CATEGORY = 4;
+constexpr unsigned int DEFAULT_FLAGS = 0x0a;
+struct SalesRecord {
+std::string name_;
+double price_;
+unsigned int category_ : 4;
+unsigned flags_ : 4;
+};
+\end{codebox}
+
+使用 NSDMI 将数据成员初始化为以下值：
+
+\begin{itemize}
+\item \texttt{name\_} 应为 \texttt{"empty"}
+\item \texttt{price\_} 应为 \texttt{1.0}
+\item \texttt{category\_} 应为 \texttt{DEFAULT\_CATEGORY}
+\item \texttt{flags\_} 应为 \texttt{DEFAULT\_FLAGS}
+\end{itemize}
+
+下面是待解决的测试代码：
+
+\myGraphic{0.9}{images/fig_p259_1.png}{}
+
+\begin{codebox}[cpp]
+TEST(SalesRecord, Name) {
+SalesRecord s;
+EXPECT_EQ("empty", s.name_);
+}
+TEST(SalesRecord, Price) {
+SalesRecord s;
+EXPECT_DOUBLE_EQ(1.0, s.price_);
+}
+TEST(SalesRecord, Category) {
+SalesRecord s;
+EXPECT_EQ(DEFAULT_CATEGORY, s.category_);
+}
+TEST(SalesRecord, Flags) {
+SalesRecord s;
+EXPECT_EQ(DEFAULT_FLAGS, s.flags_);
+}
+\end{codebox}
+
+你可以用下面这个 Compiler Explorer 上的解答来练习：Point tests @Compiler Explorer\footnote{\url{https://godbolt.org/z/Y19jMs4Gb}}。
+
+\subsection{练习 3：内联变量}
+
+我们可以把关于构造函数与内联变量的知识结合起来，继续处理第 11 章（非局部对象）中引入的 \texttt{CountedType}。请为其它构造函数实现支持，使下面这个测试能够通过。
+
+\begin{codebox}[cpp]
+struct CountedType {
+static inline int instanceCounter = 0;
+static inline int maxInstanceCounter = 0;
+// 在此处编写你的代码……
+};
+\end{codebox}
+
+下面是测试代码：
+
+\begin{codebox}[cpp]
+int main() {
+{
+CountedType c0;
+CountedType c1;
+Tests::Expect(2, CountedType::instanceCounter);
+Tests::Expect(2, CountedType::maxInstanceCounter);
+CountedType c2(c1);
+CountedType c3(c1);
+Tests::Expect(4, CountedType::instanceCounter);
+Tests::Expect(4, CountedType::maxInstanceCounter);
+CountedType c4(std::move(c1));
+Tests::Expect(5, CountedType::instanceCounter);
+Tests::Expect(5, CountedType::maxInstanceCounter);
+}
+Tests::Expect(0, CountedType::instanceCounter);
+Tests::Expect(5, CountedType::maxInstanceCounter);
+}
+\end{codebox}
+
+如你所见，这个示例创建了若干 \texttt{CountedType} 实例，然后（通过 \texttt{Test::Expect}）检查计数器是否正确。
+
+从下面这个可运行的代码示例 @Wandbox\footnote{\url{https://wandbox.org/permlink/GuGzTWKF8irN2YLz}} 开始，点击「Clone \& Edit」来启动该示例并进行修改。
+
+\myGraphic{0.9}{images/fig_p261_1.png}{}
+
+\subsection{练习 4：修正代码}
+
+看看下面的代码，修正 \texttt{SalesRec}、\texttt{addPromo} 和 \texttt{computeTotal} 中导致测试失败的问题。
+
+\begin{codebox}[cpp]
+struct SalesRec { std::string name_;
+double price_; };
+void addPromo(std::vector<SalesRec>& sales, double discount) {
+for (auto elem : sales)
+elem.price_ = (1.0-discount)*elem.price_;
+}
+double computeTotal(const std::vector<SalesRec>& sales) {
+double sum;
+for (auto elem : sales)
+sum += elem.price_;
+return sum;
+}
+TEST(computeTotal, empty) { ... }
+// 失败……
+TEST(computeTotal, several) { ... } // 失败……
+TEST(addPromo, simple) { ... }
+// 失败……
+TEST(addPromo, two) { ... }
+// 失败……
+\end{codebox}
+
+这是起始的代码示例 @Compiler Explorer\footnote{\url{https://godbolt.org/z/54dh8eh3h}}。

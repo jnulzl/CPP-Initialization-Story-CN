@@ -1,0 +1,859 @@
+到目前为止，我们讨论的变量都出现在某个局部函数作用域中，或是作为类类型的子对象。然而，这并不是唯一的选择，C++ 允许我们声明各种形式的非局部（non-local）对象：它们通常在整个程序执行期间一直存在。在本章中，我们会考察全局变量、静态数据成员（static data member）以及线程局部（thread-local）对象。我们还会讨论 C++17 和 C++20 中用于安全初始化的新特性。
+
+\section{存储期与链接}
+
+首先，我们需要理解 C++ 中对象的两项关键属性：存储（storage）与链接（linkage）。先从存储的定义开始，它来自 \texttt{[basic.stc\#general]}\footnote{\url{https://cppinsights.io/s/a76b8133}}：
+
+\begin{myQuote}
+存储期（storage duration）是对象的一种属性，它定义了容纳该对象的存储的最小潜在生命期。存储期由用于创建该对象的构造决定。
+\end{myQuote}
+
+C++ 中的对象具有以下几种存储期选项：
+
+\begin{description}
+\item[自动（automatic）] 自动意味着存储在该作用域开始时分配。大多数局部变量具有自动存储期（除了那些用 \texttt{static}、\texttt{extern} 或 \texttt{thread\_local} 声明的变量）。
+\item[静态（static）] 对象的存储在程序开始时分配（通常是在 \texttt{main()} 函数开始之前），并在程序结束时释放。整个程序中这样的对象只有一个实例。
+\item[线程（thread）] 对象的存储与某个线程绑定：它在线程开始时启动，并在线程结束时释放。每个线程都拥有该对象的自己的一份“副本”。
+\item[动态（dynamic）] 对象的存储通过显式的动态内存分配函数来分配和释放。例如，通过调用 \texttt{new}/\texttt{delete}。
+\end{description}
+
+接下来是第二项属性的定义：链接（linkage），摘自 \texttt{[basic.link]}\footnote{\url{https://timsong-cpp.github.io/cppwp/n4868/basic.link\#2}}：
+
+\begin{myQuote}
+当一个名字能够指代与另一个作用域中某条声明所引入的名字相同的对象、引用、函数、类型、模板、命名空间或值时，就说它具有链接。
+\end{myQuote}
+
+链接有以下几种类型：
+
+\begin{description}
+\item[外部链接（external linkage）] 外部意味着该名字可以从同一翻译单元或其他翻译单元中的作用域被引用。非常量全局变量默认具有外部链接。
+\item[模块链接（module linkage）] 自 C++20 起可用。名字可以在同一模块或模块单元的作用域中被引用。
+\item[内部链接（internal linkage）] 名字可以从同一翻译单元中的作用域被引用。例如，\texttt{static}、\texttt{const} 和 \texttt{constexpr} 全局变量都具有内部链接。
+\item[无链接（no linkage）] 无法从其他作用域被引用。
+\item[语言链接（language linkage）] 允许不同编程语言之间互操作，通常是与 C 语言。例如，通过声明 \texttt{extern "C"}。
+\end{description}
+
+如果我们处理的是在函数作用域中声明的普通变量，那么其存储是自动的，并且没有链接；但对处于全局作用域或线程作用域中的对象来说，这些属性就很重要了。在接下来的几节中，我们会用全局对象做一些实验，来理解这些定义的含义。
+
+\section{静态存储期与外部链接}
+
+考虑下面这段代码：
+
+\begin{codeboxt}[cpp]{代码清单 11.1 静态对象与自动对象（在 Compiler Explorer 上运行）}
+#include <iostream>
+struct Value {
+Value(int x) : v(x) { std::cout << "Value(" << v << ")\n"; }
+~Value() noexcept { std::cout << "~Value(" << v << ")\n"; }
+int v {0};
+};
+Value v{42};
+int main() {
+puts("main starts...");
+Value x { 100 };
+puts("main ends...");
+}
+\end{codeboxt}
+
+如果运行这个示例，你会看到如下输出：
+
+\begin{codebox}[cpp]
+Value(42)
+main starts...
+Value(100)
+main ends...
+~Value(100)
+~Value(42)
+\end{codebox}
+
+在这个示例中，有一个名为 \texttt{Value} 的结构体，我声明并定义了一个全局变量 \texttt{v}。从输出可以看到，该对象在 \texttt{main()} 函数开始之前就被初始化，并在 \texttt{main()} 结束之后被销毁。
+
+全局变量 \texttt{v} 具有静态存储期和外部链接。另一方面，第二个变量 \texttt{x} 没有链接，且具有自动存储期（因为它是局部变量）。
+
+如果我们有两个翻译单元：\texttt{main.cpp} 和 \texttt{other.cpp}，可以在某一处声明并定义对象，然后在另一个翻译单元中用 \texttt{extern} 关键字提供声明，从而让两者指向同一个全局变量。下面的例子演示了这一点：
+
+\begin{codeboxt}[cpp]{代码清单 11.2 static 与 extern（在 Wandbox 上运行）}
+// main.cpp
+#include <iostream>
+#include "value.h"
+Value v{42};
+void foo();
+int main() {
+std::cout << "in main(): " << &v << '\n';
+foo();
+std::cout << "main ends...\n";
+}
+// other.cpp
+#include "value.h"
+extern Value v; // 仅声明！
+void foo() {
+std::cout << "in foo(): " << &v << '\n';
+}
+\end{codeboxt}
+
+如果运行这段代码，你会看到 \texttt{v} 的地址在两行中是相同的。例如：
+
+\begin{codebox}[cpp]
+Value(42)
+in main(): 0x404194
+in foo(): 0x404194
+main ends...
+~Value(42)
+\end{codebox}
+
+\section{内部链接}
+
+如果你希望两个全局变量在每个翻译单元中都表现为彼此独立的对象，就需要把它们定义为 \texttt{static}。这会把它们的链接从外部改为内部。
+
+\begin{codeboxt}[cpp]{代码清单 11.3 static 与内部链接（在 Wandbox 上运行）}
+// main.cpp
+#include <iostream>
+#include "value.h"
+static Value v{42};
+void foo();
+int main() {
+std::cout << "in main(): " << &v << '\n';
+foo();
+std::cout << "main ends...\n";
+}
+// other.cpp
+#include "value.h"
+static Value v { 100 };
+void foo() {
+std::cout << "in foo(): " << &v << '\n';
+}
+\end{codeboxt}
+
+现在，你有两个不同的对象，它们都位于静态存储中（在 \texttt{main()} 之外）：
+
+\begin{codebox}[cpp]
+Value(42)
+Value(100)
+in main(): 0x404198
+in foo(): 0x4041a0
+main ends...
+~Value(100)
+~Value(42)
+\end{codebox}
+
+你也可以把对象包在匿名命名空间中来实现同样的效果：
+
+\begin{codebox}[cpp]
+namespace {
+Value v{42};
+}
+\end{codebox}
+
+此外，如果你在某个翻译单元中声明 \texttt{const Value v\{42\};}，那么 \texttt{const} 会隐含内部链接。如果你想让一个 \texttt{const} 对象具有外部链接，就需要加上 \texttt{extern} 关键字：
+
+\begin{codebox}[cpp]
+// main.cpp:
+extern const Value v { 42 }; // 声明并定义！
+// other.cpp:
+extern const Value v; // 声明
+\end{codebox}
+
+\begin{myWarnBox}
+虽然常量全局变量可能很有用，但请尽量避免可变的全局对象。它们会使程序的状态复杂化，并可能引入微妙的缺陷或数据竞争，尤其是在多线程程序中。在本章中，我们会介绍所有全局变量，以便你理解它们的工作方式，但请谨慎使用。参见 C++ 核心准则 I.2：避免非常量全局变量\footnote{\url{https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines\#i2-avoid-non-const-global-variables}}。
+\end{myWarnBox}
+
+\section{线程局部存储期}
+
+从 C++11 起，你可以使用一个新关键字 \texttt{thread\_local} 来指明变量具有特殊的存储。\texttt{thread\_local} 对象既可以在局部作用域声明，也可以在全局作用域声明。无论哪种情况，它的初始化都与某个线程绑定，其存储位于线程局部存储（Thread Local Storage）空间中\footnote{更多内容参见 \url{https://en.wikipedia.org/wiki/Thread-local_storage}}。每个使用该对象的线程都会创建它的一份副本。
+
+
+\begin{codeboxt}[cpp]{代码清单 11.4 thread\_local 变量示例（在 Compiler Explorer 上运行）}
+#include <iostream>
+#include <thread>
+#include <mutex>
+std::mutex mutPrint;
+thread_local int x = 0;
+void foo() {
+thread_local int y = 0;
+std::lock_guard guard(mutPrint);
+std::cout << "in thread\t" << std::this_thread::get_id() << " ";
+std::cout << "&x " << &x << ", ";
+std::cout << "&y " << &y << '\n';
+}
+int main() {
+std::cout << "main
+\t" << std::this_thread::get_id() << " &x " << &x << \
+'\n';
+std::jthread worker1 { foo };
+foo();
+std::jthread worker2 { foo };
+foo();
+}
+\end{codeboxt}
+
+下面是一种可能的输出：
+
+\begin{codebox}[cpp]
+main
+4154632640 &x 0xf7a2a9b8
+in thread
+4154632640 &x 0xf7a2a9b8, &y 0xf7a2a9bc
+in thread
+4154628928 &x 0xf7a29b38, &y 0xf7a29b3c
+in thread
+4154632640 &x 0xf7a2a9b8, &y 0xf7a2a9bc
+in thread
+4146236224 &x 0xf7228b38, &y 0xf7228b3c
+\end{codebox}
+
+这个示例使用互斥量 \texttt{mutPrint} 来同步对输出的打印。首先，在 \texttt{main()} 内部，可以看到主线程的 ID 以及 \texttt{x} 变量的地址。在后面的输出中，可以看到 \texttt{foo()} 被调用了，而且是在主线程中执行的（比较一下 ID）。如你所见，\texttt{x} 的地址是相同的，因为这是同一个线程。另一方面，在输出更靠后的位置，我们可以看到来自两个不同线程的调用；在这两种情况下，\texttt{x} 和 \texttt{y} 的地址都不同。总而言之，我们有三份不同的 \texttt{x} 副本和三份 \texttt{y} 副本。
+
+从这个例子中我们还能看出，在单个线程内，函数作用域中的 \texttt{thread\_local} 的行为就像一个静态局部变量。更重要的是，下面两行是等价的：
+
+\begin{codebox}[cpp]
+// 局部或全局作用域……
+static thread_local int x;
+thread_local int y;
+// 含义与上面相同
+\end{codebox}
+
+\begin{myInfoBox}
+这段代码使用了 C++20 的 \texttt{std::jthread}，当 \texttt{jthread} 对象离开作用域时，它会自动汇合（join）到调用线程。而使用 \texttt{std::thread} 时，你需要手动调用 \texttt{join()}。
+\end{myInfoBox}
+
+当你想拥有共享的全局状态，但又想把它限定在某个特定线程内、从而避免同步问题时，就可能用到线程局部变量。为了模拟这种行为并理解这类变量，我们可以创建一个变量映射：
+
+\begin{codebox}[cpp]
+std::map<thread_id, Object> objects;
+\end{codebox}
+
+而每次访问全局变量时，都需要通过当前线程 ID 来访问，类似这样：
+
+\begin{codebox}[cpp]
+objects[std::this_thread::get_id()] = x; // 修改全局对象……
+\end{codebox}
+
+当然，上面的代码只是一种简化；有了 \texttt{thread\_local}，所有细节都由编译器隐藏起来，我们可以安全地访问和修改对象。
+
+在另一个例子中，我们可以观察每一份副本是在何时创建的，来看一看：
+
+
+\begin{codeboxt}[cpp]{代码清单 11.5 线程局部变量的开始与结束（在 Compiler Explorer 上运行）}
+#include <iostream>
+#include <thread>
+#include "value.h"
+thread_local Value x { 42 };
+void foo() {
+std::cout << "foo()\n";
+x.v = 100;
+}
+int main() {
+std::cout << "main " << std::this_thread::get_id() << '\n';
+{
+std::jthread worker1 { foo };
+std::jthread worker2 { foo };
+}
+std::cout << "end main()\n";
+}
+\end{codeboxt}
+
+可能的输出
+
+\begin{codebox}[cpp]
+main 4154399168
+foo()
+Value(42)
+foo()
+Value(42)
+~Value(~Value(100)
+100)
+end main()
+\end{codebox}
+
+这一次，变量 \texttt{x} 会从其构造函数和析构函数中打印消息，因此我们能看到一些细节。只有两个 \texttt{foo} 线程工作单元使用了这个变量，所以有两份副本，而不是三份（主线程没有使用该变量）。每份副本的生命期都从其父线程启动时开始，在线程汇合进主线程时结束。
+
+作为一个实验，你可以尝试把 \texttt{x.v = 100} 这一行注释掉。编译之后，你将看不到任何 \texttt{Value} 构造函数或析构函数的调用。这是因为没有任何线程使用该对象，因此也就不会创建对象。
+
+一些可能的用例：
+
+\begin{itemize}
+\item 拥有一个随机数生成器，每个线程一个；
+\item 由一个线程处理某个服务器连接，并在其间保存一些状态；
+\item 按线程保留一些统计信息，例如用来衡量线程池中的负载。
+\end{itemize}
+
+\section{动态存储期}
+
+为了完整起见，我们还必须提到动态存储期（dynamic storage duration）。简而言之，通过显式调用内存管理例程来申请内存，你就能完全控制对象何时被创建和销毁。在最基本的场景中，你可以调用 \texttt{new()}，然后调用 \texttt{delete}：
+
+\begin{codebox}[cpp]
+auto pInt = new int{42}; // 仅用于演示……
+auto pSmartInt = std::make_unique<int>(42);
+int main() {
+auto pDouble = new double { 42.2 }; // 仅用于演示……
+// 使用 pInt……
+// 使用 pDouble
+delete pInt;
+delete pDouble;
+}
+\end{codebox}
+
+上面这个人为构造的例子展示了动态存储的三种方式：
+
+\begin{itemize}
+\item \texttt{pInt} 是一个用 \texttt{new} 表达式初始化的非局部对象。我们必须手动销毁它；在本例中，就是在 \texttt{main()} 函数末尾。
+\item \texttt{pDouble} 是一个局部变量，同时也是动态初始化的；我们同样必须手动删除它。
+\item 另一方面，\texttt{pSmartInt} 是一个智能指针，一个动态初始化的 \texttt{std::unique\_ptr}。得益于 RAII 惯用法，无需手动删除内存，因为智能指针会在自身离开作用域时自动完成删除。在我们的例子中，它会在 \texttt{main()} 结束后被销毁。
+\end{itemize}
+
+\begin{myWarnBox}
+动态内存管理非常棘手，因此最好依赖 RAII 和智能指针来清理内存。上面的例子使用裸的 \texttt{new} 和 \texttt{delete}，只是为了展示基本用法，但在生产代码中请尽量避免。更多内容参见这些资源：6 Ways to Refactor new/delete into unique ptr - C++ Stories\footnote{\url{https://www.cppstories.com/2021/refactor-into-uniqueptr/}} 以及 5 ways how unique\_ptr enhances resource safety in your code - C++ Stories\footnote{\url{https://www.cppstories.com/2017/12/why-uniqueptr/}}。
+\end{myWarnBox}
+
+我们在析构函数一章中讨论过内存释放与资源管理；你可以在那里找到更多信息。
+
+\section{非局部静态对象的初始化}
+
+所有非局部对象都在 \texttt{main()} 开始之前、以及它们的首次“使用”之前被初始化。但事情还不止于此。
+
+考虑下面这段代码：
+
+\begin{codeboxt}[cpp]{代码清单 11.4 静态初始化（在 Compiler Explorer 上运行）}
+#include <iostream>
+struct Value { /*同前*/ };
+double z = 100.0;
+int x;
+Value v{42};
+int main() {
+puts("main starts...");
+std::cout << x << '\n';
+puts("main ends...");
+}
+\end{codeboxt}
+
+所有全局对象 \texttt{z}、\texttt{x} 和 \texttt{v} 都在程序启动期间、\texttt{main()} 开始之前被初始化。我们可以把初始化划分为两种不同的类型：静态初始化和动态初始化。
+
+静态初始化有两种形式：
+
+
+\begin{itemize}
+\item 常量初始化（constant initialization）——这发生在 \texttt{z} 变量上，它由常量表达式进行值初始化。
+\item \texttt{x} 对象看起来未被初始化，但对于非局部静态对象，编译器会执行零初始化（zero initialization），也就是说它们会取零值（然后被转换成合适的类型）。指针被设为 \texttt{nullptr}，数组、平凡结构体和联合体的成员都被初始化为零值。
+\end{itemize}
+
+\begin{myWarnBox}
+不要依赖静态对象的零初始化。请始终尝试赋一个值，以确保结果符合预期。在本书中，我展示它只是为了让你看到全貌。
+\end{myWarnBox}
+
+现在，全局对象 \texttt{v} 会在所谓“非局部变量的动态初始化”期间被初始化。对于那些无法在程序启动时通过静态初始化完成常量初始化或零初始化的对象，就会发生这种情况。
+
+\begin{myWarnBox}
+在单个翻译单元内，全局变量（包括静态数据成员）的动态初始化顺序是良定义的。如果你有多个编译单元，那么顺序就是未指定的。当一个编译单元中定义的全局对象 A 依赖于另一个翻译单元中定义的全局对象 B 时，就会产生未定义行为。这类问题被称为“静态初始化顺序问题”（static initialization order fiasco）；更多内容请阅读 C++ Super FAQ\footnote{\url{https://isocpp.org/wiki/faq/ctors\#static-init-order}}。
+\end{myWarnBox}
+
+简而言之，每个静态非局部对象都必须在程序启动时初始化。不过，编译器会尝试优化这一过程，并尽可能在编译期完成更多工作。例如，对于由常量表达式初始化的内建类型，变量的值可能作为二进制文件的一部分被存储起来，然后在程序启动时加载。如果做不到这一点，就必须进行动态初始化，也就是说该值会在 \texttt{main()} 开始之前被计算一次。此外，编译器甚至可能把动态初始化推迟到变量首次被使用时，但必须保证程序的正确性。从 C++11 起，得益于 \texttt{constexpr}（它允许我们编写自定义类型），我们可以尝试把动态初始化提前到编译期阶段。从 C++20 起，我们可以使用 \texttt{constinit} 来保证常量初始化。
+
+\begin{myInfoBox}
+如需了解更多信息，可以看看这篇不错的博客文章：C++ - Initialization of Static Variables by Pablo Arias\footnote{\url{https://pabloariasal.github.io/2020/01/02/static-variable-initialization/}}，以及 Matt Godbolt 的一场演讲：CppCon 2018 “The Bits Between the Bits: How We Get to main()”\footnote{\url{https://www.youtube.com/watch?v=dOfucXtyEsU}}。
+\end{myInfoBox}
+
+
+
+\section{C++20 中的 constinit}
+
+正如我们在上一节所讨论的，如果你确实需要一个全局变量，最好依赖常量初始化。而在动态初始化的情况下，初始化顺序可能很难预料，并可能引发问题。考虑下面的例子：
+
+\begin{codeboxt}[cpp]{代码清单 11.5 静态初始化顺序问题，point.h（在 Wandbox 上运行）}
+// point.h
+struct Point {
+double x, y;
+};
+\end{codeboxt}
+
+\begin{codeboxt}[cpp]{代码清单 11.5 静态初始化顺序问题，a.cpp（在 Wandbox 上运行）}
+// a.cpp
+#include <iostream>
+#include "point.h"
+extern Point center;
+Point offset = { center.x + 100, center.y + 200};
+void foo() {
+std::cout << offset.x << ", " << offset.y << '\n';
+}
+\end{codeboxt}
+
+\begin{codeboxt}[cpp]{代码清单 11.5 静态初始化顺序问题，b.cpp（在 Wandbox 上运行）}
+// b.cpp
+#include "point.h"
+Point createPoint(double x, double y) {
+return Point { x, y };
+}
+Point center = createPoint(100, 200); // 动态
+\end{codeboxt}
+
+以及 main：
+
+\begin{codeboxt}[cpp]{代码清单 11.5 静态初始化顺序问题，main.cpp（在 Wandbox 上运行）}
+void foo();
+int main() {
+foo();
+}
+\end{codeboxt}
+
+如果我们用下面的命令和顺序编译这段代码：
+
+\begin{codebox}[cpp]
+$ g++ prog.cc -Wall -Wextra -std=c++2a -pedantic a.cpp b.cpp
+\end{codebox}
+
+我们会得到如下结果：
+
+\begin{codebox}[cpp]
+100, 200
+\end{codebox}
+
+但如果你先编译 \texttt{b.cpp}，再编译 \texttt{a.cpp}：
+
+\begin{codebox}[cpp]
+$ g++ prog.cc -Wall -Wextra -std=c++2a -pedantic b.cpp a.cpp
+\end{codebox}
+
+你会得到如下结果：
+
+\begin{codebox}[cpp]
+200, 400
+\end{codebox}
+
+全局变量之间存在依赖关系：\texttt{offset} 依赖于 \texttt{center}。如果包含 \texttt{center} 的编译单元先被编译，那么动态初始化就会执行，\texttt{center} 会被赋值为 \texttt{100, 200}。否则，它只会被零初始化，于是 \texttt{offset} 就具有值 \texttt{100, 200}。
+
+\begin{myWarnBox}
+这只是一个玩具示例，但想象一下生产代码！在那种情况下，你可能会遇到一个很难发现的缺陷，它并非来自某个错误的计算逻辑，而是来自项目中的编译顺序！
+\end{myWarnBox}
+
+为了缓解这个问题，你可以在全局变量 \texttt{center} 上应用 \texttt{constinit}。这个 C++20 的新关键字会强制进行常量初始化。在我们的例子中，它将确保无论编译顺序如何，该值都已经就绪。更重要的是，与 \texttt{constexpr} 不同，我们只是强制初始化，变量本身并不是常量。因此你可以稍后修改它。
+
+
+\begin{codeboxt}[cpp]{代码清单 11.6 constinit 做法，b.cpp（在 Wandbox 上运行）}
+// b.cpp:
+#include "point.h"
+constexpr Point createPoint(double x, double y) {
+return Point { x, y };
+}
+constinit Point center = createPoint(100, 200); // 常量
+\end{codeboxt}
+
+请注意，\texttt{createPoint} 现在必须是 \texttt{constexpr}。\texttt{constinit} 的主要要求是：它要求初始化器表达式在编译期求值，因此并非所有代码都能这样转换。
+
+下面是另一个例子，它总结了如何使用 \texttt{constinit}：
+
+\begin{codeboxt}[cpp]{代码清单 11.7 constinit 与 std::pair（在 Compiler Explorer 上运行）}
+#include <iostream>
+#include <utility>
+constinit std::pair<int, double> global { 42, 42.2 };
+constexpr std::pair<int, double> constG { 42, 42.2 };
+int main() {
+std::cout << global.first << ", " << global.second << '\n';
+// 但允许稍后修改……
+global = { 10, 10.1 };
+std::cout << global.first << ", " << global.second << '\n';
+// constG = { 10, 10.1 }; // 不允许，它是 const
+}
+\end{codeboxt}
+
+在上面的例子中，我创建了一个全局 \texttt{std::pair} 对象，并强制它进行常量初始化。对于所有具有 \texttt{constexpr} 构造函数或平凡的类型，我都可以这样做。注意，在 \texttt{main()} 内部，我可以修改我这个对象的值，所以它不是 \texttt{const}。作为对比，我还加入了 \texttt{constG} 对象，它是一个 \texttt{constexpr} 变量。在那种情况下，我们同样会强制编译器进行常量初始化，但这一次对象之后不能再被修改。
+
+\begin{myWarnBox}
+虽然 \texttt{constinit} 变量会被常量初始化，但它之后不能被用于另一个 \texttt{constinit} 变量的初始化器中。\texttt{constinit} 对象并不是 \texttt{constexpr}。
+\end{myWarnBox}
+
+
+\section{函数作用域中的静态变量}
+
+你可能知道，C++ 还提供了另一种静态变量：定义在函数作用域中的静态变量：
+
+\begin{codebox}[cpp]
+void foo() {
+static int counter = 0;
+++counter;
+}
+\end{codebox}
+
+在上面的代码中，\texttt{counter} 变量会在 \texttt{foo()} 首次被调用时初始化并创建。换句话说，静态局部变量是惰性初始化的。\texttt{counter} 被保存在函数栈空间“之外”。这样一来，就可以在保留状态的同时，限制该全局对象的可见性。
+
+\begin{codeboxt}[cpp]{代码清单 11.8 作为局部静态变量的计数器（在 Compiler Explorer 上运行）}
+#include <iostream>
+int foo() {
+static int counter = 0;
+return ++counter;
+}
+int main() {
+foo();
+foo();
+foo();
+auto finalCounter = foo();
+std::cout << finalCounter;
+}
+\end{codeboxt}
+
+如果运行该程序，你会得到输出 \texttt{4}。
+
+从 C++11 起，静态局部变量保证以线程安全的方式初始化。如果有多个线程进入含有这种变量的函数，该对象也只会被初始化一次。请看下面：
+
+\begin{codeboxt}[cpp]{代码清单 11.9 线程安全的静态变量初始化（在 Compiler Explorer 上运行）}
+#include <iostream>
+#include <thread>
+struct Value {
+Value(int x) : v(x) { std::cout << "Value(" << v << ")\n"; }
+~Value() noexcept { std::cout << "~Value(" << v << ")\n"; }
+int v { 0 };
+};
+void foo() {
+static Value x { 10 };
+}
+int main() {
+std::jthread worker1 { foo };
+std::jthread worker2 { foo };
+std::jthread worker3 { foo };
+}
+\end{codeboxt}
+
+这个例子创建了三个线程，它们都调用简单的函数 \texttt{foo()}。
+
+不过，在 GCC 上，你也可以尝试用下列标志进行编译：
+
+\begin{codebox}[cpp]
+-std=c++20 -lpthread -fno-threadsafe-statics
+\end{codebox}
+
+这时输出可能会像下面这样：
+
+\begin{codebox}[cpp]
+Value(Value(1010)
+)
+Value(10)
+~Value(10)
+~Value(10)
+~Value(10)
+\end{codebox}
+
+现在会创建三个静态对象！
+
+我们会在技巧一章的 Mayers Singleton 一节中讨论一个与这些函数内静态对象相关的有趣技巧。
+
+\section{关于静态数据成员}
+
+一般来说，类的每个实例（对象）都把非静态数据成员作为自己的数据字段，各个实例彼此独立。假设我们有一个表示 \texttt{Fruit} 的类型（类），它有一个名为 “mass” 的数据成员，那么 \texttt{Fruit} 类的每个具体实例都拥有属于自己的 “mass” 成员。如果我们有 10 个 \texttt{Fruit} 对象，那么 “mass” 数据成员就会被复制十份。另一方面，每个类型也可以拥有不与任何类实例绑定的静态数据成员。在我们的 \texttt{Fruit} 类中，可以指定一个名为 “default mass” 的所谓静态变量，每个 \texttt{Fruit} 实例都能访问它，但它并不属于任何实例。换句话说，它就像 \texttt{Fruit} 类型的命名空间中的一个全局变量。
+
+考虑下面的例子：
+
+\begin{codeboxt}[cpp]{代码清单 11.5 简单的静态数据成员（在 Compiler Explorer 上运行）}
+#include <iostream>
+struct Value {
+int x;
+static int y; // 声明
+};
+int Value::y = 0; // 定义
+int main() {
+Value v { 10 };
+std::cout << "sizeof(int): " << sizeof(int) << '\n';
+std::cout << "sizeof(Value): " << sizeof(Value) << '\n';
+std::cout << "v.x: " << v.x << '\n';
+Value::y = 10;
+std::cout << "Value::y: " << Value::y << '\n';
+}
+\end{codeboxt}
+
+运行这个程序时，你会看到如下输出：
+
+\begin{codebox}[cpp]
+sizeof(int): 4
+sizeof(Value): 4
+v.x: 10
+Value::y: 10
+\end{codebox}
+
+在 \texttt{Value} 类的作用域中声明的 \texttt{static int y} 创建了一个不属于任何 \texttt{Value} 类型实例的变量。你可以看到，它并不贡献整个类的大小，大小与 \texttt{int} 类型相同。
+
+准确地说，\texttt{Value::y} 具有静态存储期和外部链接。
+
+\begin{myWarnBox}
+局部类或未命名类不能拥有静态数据成员。
+\end{myWarnBox}
+
+下面这个例子展示了静态数据成员的生命期：
+
+\begin{codeboxt}[cpp]{代码清单 11.6 静态数据成员的生命期（在 Compiler Explorer 上运行）}
+#include <iostream>
+struct Value {
+Value(int x) : v(x) { std::cout << "Value(" << v << ")\n"; }
+~Value() noexcept { std::cout << "~Value(" << v << ")\n"; }
+int v {0};
+};
+struct Test {
+Test() { puts("Test::Test()"); }
+~Test() noexcept { puts("Test::~Test()"); }
+static Value u;
+static Value v;
+static int w;
+static double z;
+};
+Value Test::v { 42 };
+Value Test::u { 24 };
+int Test::w;
+double Test::z = 10.5f;
+int main() {
+puts("main starts...");
+Test x;
+std::cout << Test::w << '\n';
+std::cout << Test::z << '\n';
+puts("main ends...");
+}
+\end{codeboxt}
+
+
+这段代码中，\texttt{Value} 结构体以两个静态数据成员的形式存在于 \texttt{Test} 类内部，共有两个实例。此外我们还有两个其他数据成员 \texttt{w} 和 \texttt{z}，它们是内建类型。如果运行这段代码，你会看到如下输出：
+
+\begin{codebox}[cpp]
+Value(42)
+Value(24)
+main starts...
+Test::Test()
+0
+10.5
+main ends...
+Test::~Test()
+~Value(24)
+~Value(42)
+\end{codebox}
+
+如你所见，两个 \texttt{Value} 对象在 \texttt{main} 开始之前被创建，顺序与文件中的定义顺序一致（不是声明顺序！）。在 \texttt{main()} 函数结束后，这两个对象以相反的顺序被销毁。
+
+\section{内联变量的动机}
+
+在 C++11/14 中，如果你想给类添加一个静态数据成员，就需要先声明它，然后在某个编译单元中定义它。在上一节的例子中，我们把它定义在与 \texttt{main()} 函数相同的编译单元里。通常，这类变量定义在相应的实现文件中。
+
+例如：
+
+\begin{codeboxt}[cpp]{代码清单 11.7 静态数据成员，多个文件（在 Wandbox 上运行）}
+// 头文件：
+struct OtherType {
+static int classCounter;
+// ……
+};
+// 实现，cpp 文件
+int OtherType::classCounter = 0;
+\end{codeboxt}
+
+这一次我使用了 Wandbox 在线编译器——因为创建并编译多个文件很方便：
+
+如上所示，\texttt{classCounter} 是一个 \texttt{int}，你必须写两次：一次在头文件中，一次在 CPP 文件中。
+
+\myGraphic{0.9}{images/fig_p205_1.png}{}
+
+这条规则唯一的例外（早在 C++11 之前就如此）是静态常量整型变量，你可以在同一个地方声明并初始化它：
+
+\begin{codebox}[cpp]
+class MyType {
+static const int ImportantValue = 42;
+};
+\end{codebox}
+
+你不必在 CPP 文件中定义 \texttt{ImportantValue}。
+
+幸运的是，C++17 为我们带来了内联变量（inline variable），这意味着我们可以在类内部定义一个静态内联变量，而无需在 CPP 文件中定义它们。
+
+\begin{codeboxt}[cpp]{代码清单 11.8 静态内联成员（在 Wandbox 上运行）}
+// 头文件，C++17：
+struct OtherType {
+static inline int classCounter = 0;
+// ……
+};
+\end{codeboxt}
+
+对于所有包含该类声明的翻译单元，编译器（以及链接器）保证这个静态变量恰好只有一个定义。内联变量仍然是 \texttt{static} 类变量，因此它们会在 \texttt{main()} 函数被调用之前完成初始化。
+
+如果我们去读 C++Reference 上的“动态初始化”\footnote{参见 cppreference 上关于动态初始化（Dynamic initialization）的页面。} 和 C++ 标准的 basic.start\footnote{参见 C++ 标准中的 basic.start 一节。}，就会得到关于初始化顺序的如下规则：
+
+\myGraphic{0.9}{images/fig_p206_1.png}{}
+
+部分有序的动态初始化（partially-ordered dynamic initialization），适用于所有并非隐式或显式实例化的特化的内联变量。如果部分有序的 V 在每个翻译单元中都定义在有序或部分有序的 W 之前，那么 V 的初始化就在 W 的初始化之前排序。
+
+基于前面的代码，下面是使用 \texttt{Value} 类与多个编译单元的示例：
+
+\begin{codeboxt}[cpp]{代码清单 11.9 内联变量与多个编译单元，test.h（在 Wandbox 上运行）}
+// test.h
+#include <iostream>
+struct Value {
+Value(int x) : v(x) { std::cout << "Value(" << v << ")\n"; }
+~Value() noexcept { std::cout << "~Value(" << v << ")\n"; }
+int v {0};
+};
+struct Test {
+Test() { puts("Test::Test()"); }
+~Test() noexcept { puts("Test::~Test()"); }
+static inline Value u { 42 };
+static inline Value v { 24 };
+};
+\end{codeboxt}
+
+\begin{codeboxt}[cpp]{代码清单 11.9 内联变量与多个编译单元，main（在 Wandbox 上运行）}
+// main.cpp
+#include <iostream>
+#include "test.h"
+void foo();
+static Value local{100};
+int main() {
+std::cout << "Main starting...\n";
+foo();
+Test t;
+}
+\end{codeboxt}
+
+\begin{codeboxt}[cpp]{代码清单 11.9 内联变量与多个编译单元，other 与 noname（在 Wandbox 上运行）}
+// other.cpp
+#include "test.h"
+static Value local{200};
+void foo() {
+std::cout << "foo starting...\n";
+Test t;
+}
+// noname.cpp
+#include "test.h"
+static Value local{300};
+\end{codeboxt}
+
+构建命令行：
+
+\begin{codebox}[cpp]
+$ g++ prog.cc -Wall -Wextra -std=c++2a noname.cpp other.cpp
+\end{codebox}
+
+输出：
+
+\begin{codebox}[cpp]
+Value(42)
+Value(24)
+Value(100)
+Value(300)
+Value(200)
+Main starting...
+foo starting...
+Test::Test()
+Test::~Test()
+Test::Test()
+Test::~Test()
+~Value(200)
+~Value(300)
+~Value(100)
+~Value(24)
+~Value(42)
+\end{codebox}
+
+你会注意到，\texttt{Value(42)} 和 \texttt{Value(24)} 这两个内联变量，会在所有其他 \texttt{Value} 全局对象之前初始化。此外，取决于命令行，\texttt{Value(200)} 可能会在 \texttt{Value(300)} 之前被创建。
+
+内联变量让开发仅头文件（header-only）库变得容易得多，因为不再需要为静态变量创建 CPP 文件，也不必用各种技巧把它们保留在头文件中（例如创建内部带有静态变量的静态成员函数）。
+
+看下面这个例子：
+
+\begin{codebox}[cpp]
+// CountedType.h
+struct CountedType {
+static inline int classCounter = 0;
+// 简单的计数……只实现了构造函数和析构函数……
+CountedType() { ++classCounter; }
+~CountedType() { --classCounter; }
+};
+\end{codebox}
+
+以及 \texttt{main()} 函数：
+
+\begin{codeboxt}[cpp]{代码清单 11.10 静态内联成员（在 Wandbox 上运行）}
+#include <iostream>
+#include "CountedType.h"
+int main() {
+{
+CountedType c0;
+CountedType c1;
+std::cout << CountedType::classCounter << '\n';
+}
+std::cout << CountedType::classCounter << '\n';
+}
+\end{codeboxt}
+
+上面的代码在 \texttt{CountedType} 内部声明了 \texttt{classCounter}，它是一个静态数据成员。该类定义在一个单独的头文件中。得益于 C++17，我们可以把该变量声明为 \texttt{inline}。这样，之后就不必再写对应的定义了。如果没有 \texttt{inline}，这段代码将无法编译。
+
+在 \texttt{main()} 函数中，示例创建了两个 \texttt{CountedType} 对象。每当调用构造函数时，静态变量就会递增；当对象被销毁时，该变量会递减。我们可以输出这个值，从而看到当前的对象数量。
+
+\myGraphic{0.9}{images/fig_p210_1.png}{}
+
+\begin{myInfoBox}
+\texttt{CountedType} 展示了一个有趣的模式，我们会在技巧一章的 CRTP 一节中扩展它，使其更加实用。
+\end{myInfoBox}
+
+\section{全局内联变量}
+
+我们是在类类型的静态数据成员这一背景下讨论内联变量的，但并不是只有这一种用法。从 C++17 起，你也可以在全局作用域中声明 \texttt{inline} 变量。
+
+看看这个基本的头文件，其中声明并定义了两个内联全局变量：
+
+\begin{codebox}[cpp]
+// globals.h
+#include <string>
+inline constexpr int gMyGlobal { 10 };
+inline const std::string gHelloText {"Hello World "};
+// 或者放在命名空间中更好
+namespace appConstants {
+inline constexpr double scalingFactor { 1.33 };
+inline const std::string appName { "Testing app" };
+}
+\end{codebox}
+
+现在你可以在 \texttt{main()} 中使用这些变量：
+
+\begin{codeboxt}[cpp]{代码清单 11.11 const 全局变量（在 Wandbox 上运行）}
+// main.cpp
+#include <iostream>
+#include "globals.h"
+int main() {
+std::cout << gMyGlobal << ", " << gHelloText << '\n';
+std::cout << appConstants::scalingFactor << ", "
+<< appConstants::appName << '\n';
+}
+\end{codeboxt}
+
+
+在 C++17 之前，你必须在头文件中用 \texttt{extern} 声明这类变量，并在某个编译单元中提供它们的定义。得益于 C++17，这种用法如今大大简化了。
+
+更多细节请阅读 Fluent C++ 上的这篇精彩文章：What Every C++ Developer Should Know to (Correctly) Define Global Constants\footnote{参见 Fluent C++ 的这篇文章。}。
+
+\subsection{constexpr 与内联变量}
+
+在全书各处，我们都简要提到过 \texttt{constexpr} 变量。它们对于像整数这样的内建类型以及其他平凡类型很方便。当你把这个关键字应用于变量时，编译器可能会在编译期计算它的值，从而节省运行时间。
+
+当你的类类型中有一个 \texttt{static} \texttt{constexpr} 数据成员时，编译器会自动隐含 \texttt{inline}。看下面的例子：
+
+\begin{codebox}[cpp]
+struct Value {
+static constexpr int basic { 10 };
+static constexpr auto name { "Hello World" };
+};
+\end{codebox}
+
+当我们通过 C++Insights 运行这段代码时（在 this link\footnote{参见 C++ Insights 上的展开结果。} 上运行），会看到编译器对这两个变量都应用了 \texttt{inline}：
+
+\begin{codebox}[cpp]
+struct Value {
+inline static constexpr const int basic = {10};
+inline static constexpr const char *const name = {"Hello World"};
+};
+\end{codebox}
+
+请记住，隐式 \texttt{inline} 只适用于静态类数据成员。当你声明一个全局的 \texttt{static constexpr} 变量时，编译器不会有任何此类行为。
+
+\section{小结}
+
+以下是本章需要记住的要点：
+
+\begin{itemize}
+\item 非局部对象有两项基本属性：存储期（它们存储在哪里）和链接（我们如何访问它们）。
+\item 当一个非局部对象由常量表达式初始化、且该对象的构造函数是 \texttt{constexpr}（包括内建类型）时，初始化可能发生在编译期（静态初始化）。
+\item 如果无法进行常量初始化（或零初始化），那么静态对象会在动态初始化阶段被初始化。
+\item 在单个翻译单元内，非局部变量（包括静态数据成员）的动态初始化顺序按定义顺序执行，但在多个编译单元之间，这个顺序是未指定的。
+\item 静态数据成员不与任何类实例绑定。
+\item 静态数据成员具有静态存储期和外部链接。
+\item 编译器与链接器确保 \texttt{inline} 变量只有一个定义；无需在不同位置声明和定义这类变量。
+\item 当你有 \texttt{static constexpr} 数据成员时，编译器会自动隐含 \texttt{inline}。
+\end{itemize}

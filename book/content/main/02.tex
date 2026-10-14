@@ -1,0 +1,840 @@
+在上一章中，你已经看到 C++ 可能会把具有全部公开数据成员的简单结构体当作聚合类（aggregate class）。不过，如果我们想要更好的数据封装和更复杂的类 API，聚合体就不够用了。为了在 C++ 中获得完全的灵活性，我们可以利用构造函数（constructors）——它们是在对象被创建时被调用的特殊成员函数。
+
+\section{一个简单的类类型}
+
+作为背景示例，我们来创建一个保存基本网络数据的类型。为了让事情复杂一点，我们希望为数据部分计算一个简单的校验和（checksum）。这样的校验和对于检查数据是否通过互联网正确传输可能很有用（详见 @Wikipedia\footnote{\url{https://godbolt.org/z/7Kab4eT5T}}）。
+
+\begin{codeboxt}[cpp]{代码清单 2.1 简单的 DataPacket 类。在 Compiler Explorer 上运行}
+size_t calcCheckSum(const std::string& s) {
+return std::accumulate(s.begin(), s.end(), 0uz);
+}
+class DataPacket {
+std::string data_;
+size_t checkSum_;
+size_t serverId_;
+public:
+const std::string& getData() const { return data_; }
+void setData(const std::string& data) {
+data_ = data;
+checkSum_ = calcCheckSum(data);
+}
+size_t getCheckSum() const { return checkSum_; }
+size_t getServerId() const { return serverId_; }
+void setServerId(size_t serverId) { serverId_ = serverId; }
+};
+\end{codeboxt}
+
+\footnotetext{\url{https://godbolt.org/z/7Kab4eT5T}}
+
+上面的类包含三个非静态数据成员：\texttt{data\_}、\texttt{checkSum\_} 和 \texttt{serverID\_}。我使用下划线后缀来表示私有数据成员，这是许多代码库中的常见做法。参见 Google C++ 风格指南\footnote{\url{https://learn.microsoft.com/en-us/cpp/cpp/user-defined-type-conversions-cpp?view=msvc-170}}。
+
+为了简单起见，我用 \texttt{std::accumulate()} 实现了 \texttt{calcCheckSum} 函数，它是 C++ 标准库中的一个算法。这段代码从 \texttt{0} 开始，把输入 \texttt{std::string} 中各个字母的数值累加起来。从 C++23 起，我们可以使用 \texttt{0UZ} 整型字面量来表示 \texttt{size\_t}，从而与函数的返回类型匹配；或者，我们也可以使用 \texttt{static\_cast<size\_t>} 或分别针对 32/64 位系统的 \texttt{UL}/\texttt{ULL}。例如，对于 \texttt{"HELLO"}，我们会得到如下计算：
+
+为字符串计算简单校验和
+
+\texttt{DataPacket} 有所谓的 getter 和 setter——即返回或修改某个特定数据成员的函数。例如 \texttt{getData()} 返回 \texttt{data\_} 数据成员，而 \texttt{setData(...)} 允许我们修改它。
+
+一个重要话题是，getter 通常会在末尾加上 \texttt{const}。这意味着该成员函数是常量的，不能修改成员的值（除非它们是 \texttt{mutable} 的）。如果你有一个 \texttt{const} 对象，就只能调用它的 \texttt{const} 成员函数。使用 \texttt{const} 有助于改进程序设计，因为推断 \texttt{const} 实例的状态通常更容易。更多信息请参见这条 C++ 核心指南：Con.2：默认情况下，让成员函数为 \texttt{const}\footnote{\url{https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines\#con2-by-default-make-member-functions-const}}。
+
+\begin{myInfoBox}
+成员函数也可以加上 \texttt{noexcept} 说明符。不过，这个话题超出了本书的范围，不会展开讲解。你可以在 @C++Reference 的 \texttt{noexcept} 说明符\footnote{\url{https://en.cppreference.com/w/cpp/language/noexcept_spec}} 处了解更多信息。
+\end{myInfoBox}
+
+\myGraphic{0.9}{images/fig_p027_1.png}{}
+
+下面是这个例子的延续，我们创建并使用 \texttt{DataPacket} 类的对象：
+
+\begin{codeboxt}[cpp]{代码清单 2.2 简单的 DataPacket 类（续）。在 Compiler Explorer 上运行}
+int main() {
+DataPacket packet;
+packet.setData("Programming World");
+std::cout << packet.getCheckSum() << '\n';
+}
+\end{codeboxt}
+
+这段代码并不直接访问数据成员，而是调用成员函数来操作对象并修改其属性。
+
+你会注意到类声明中的 \texttt{public} 和 \texttt{private} 部分。这些部分的顺序只是一种编码约定，它们依据访问修饰符把元素分组。简而言之，位于 \texttt{public} 关键字下的成员可以从外部访问（比如调用成员函数或访问数据成员）。另一方面，位于 \texttt{private} 部分的成员不能从外部访问⁵。在 C++ 中，你还可以为类声明添加 \texttt{protected}，这意味着成员函数或字段在外部不可访问，但对于所有派生类（inherited classes）都是可访问的（假设是 \texttt{public} 继承，详见本书后面关于继承的小节）。
+
+\footnotetext{除非通过友元（friend）函数或类访问。}
+
+例如，在上面的 \texttt{main()} 函数中，我不能写：
+
+\begin{codebox}[cpp]
+DataPacket packet;
+packet.serverId = 10; // 错误：'size_t DataPacket::serverId' 是私有的……
+\end{codebox}
+
+\begin{myInfoBox}
+C++ 中 \texttt{class} 与 \texttt{struct} 的唯一区别在于：\texttt{class} 默认使用 \texttt{private} 作为访问修饰符，并且默认是 \texttt{private} 继承；而 \texttt{struct} 的这两者都默认为 \texttt{public}。一些 C++ 指南（例如 Google 风格指南，见此链接\footnote{\url{https://google.github.io/styleguide/cppguide.html\#Structs_vs._Classes}}）建议，仅对较小的、“被动”的类型使用 \texttt{struct}，且只含公开数据成员。C++ 核心指南也建议：只要有任何成员不是公开的，就使用 \texttt{class}；参见 C++ 核心指南 C.8\footnote{\url{https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines\#c8-use-class-rather-than-struct-if-any-member-is-non-}}。
+\end{myInfoBox}
+
+由于我们的类没有任何用户定义的构造函数（下一节详述），我们也可以使用价值初始化语法把值置为零或默认值：
+
+
+\begin{codeboxt}[cpp]{代码清单 2.3 DataPacket 类的值初始化。在 Compiler Explorer 上运行}
+int main() {
+DataPacket packet{};
+std::cout << "data: " << packet.getData() << '\n';
+std::cout << "checkSum: " << packet.getCheckSum() << '\n';
+std::cout << "serverId: " << packet.getServerId() << '\n';
+}
+\end{codeboxt}
+
+输出为：
+
+\begin{codebox}[cpp]
+data:
+checkSum: 0
+serverId: 0
+\end{codebox}
+
+然而，现在的主要区别在于：由于我们把数据成员移到了 \texttt{private} 部分，这个类就不再是聚合体了。因此我们无法用聚合初始化一次性设置所有值。要解决这个问题，我们需要研究构造函数。这正是后续小节的计划。
+
+\section{构造函数基础}
+
+构造函数（constructor）是一种没有名字的特殊成员函数，但我们使用其所属类的名字来声明 / 定义它⁸。你不能像调用其他成员函数那样去调用构造函数。相反，当该类的对象被初始化时，编译器会调用它。它具有如下基本语法：
+
+\footnotetext{完整定义见 \url{https://timsong-cpp.github.io/cppwp/n4868/class.ctor.general}。}
+
+一个构造函数包含如下部分：
+
+\myGraphic{0.9}{images/fig_p029_1.png}{}
+
+\begin{itemize}
+\item 构造函数没有名字，但我们用类的名字来定义它；
+\item 可选的 \texttt{explicit}——用于阻止对给定类类型的隐式转换的关键字；
+\item \texttt{ClassName}——给定类类型的名字（两者必须一致）；
+\item \texttt{parameter-list}——参数列表，与常规函数一样，可能为空；
+\item 可选的 \texttt{= default}/\texttt{=delete}——指定构造函数应当被编译器删除（\texttt{deleted}，即不存在）还是默认生成；
+\item \texttt{:}——表示成员 / 基类初始化列表的开始，当存在基类初始化器或成员初始化器列表时是必需的；
+\item 可选的 \texttt{base-class-initializer}——我们想要显式调用的基类构造函数的列表；
+\item 可选的 \texttt{member-init}——我们可以直接初始化其值的那些数据成员的列表；
+\item \texttt{/*函数体*/}——函数体。
+\end{itemize}
+
+\begin{myInfoBox}
+你还可以在构造函数上应用 \texttt{noexcept}、\texttt{[[attributes]]}、\texttt{constexpr} 和 \texttt{consteval}，但关于这些附加属性的完整解释超出了本书的范围。更多内容请见 @C++Reference 的“构造函数与成员初始化器列表”⁹。
+\end{myInfoBox}
+
+\footnotetext{\url{https://en.cppreference.com/w/cpp/language/constructor}}
+
+为了便于说明，下面给出一个带两个数据成员的简单类类型。\texttt{Product} 类将作为一个玩具示例，之后我们会把相关知识应用到我打算更新的 \texttt{DataPacket} 类上。来看一段代码：
+
+\begin{codebox}[cpp]
+class Product {
+public:
+Product() : id_{-1}, name_{"none"} { } // 默认构造函数
+explicit Product(int id, const std::string& name)
+: id_{id}, name_{name} { }
+private:
+int id_;
+std::string name_;
+};
+\end{codebox}
+
+上面的例子展示了一个带两个构造函数的类。第一个被称为默认构造函数（default constructor），它没有参数。第二个接受两个参数。正如你所注意到的，
+
+
+C++ 允许多个看起来像重载函数的构造函数（它们的区别在于参数的数量或类型）。每个构造函数也都有一个常规的函数体，你可以在其中执行一些代码；在我们的例子中，它们目前都是空的。我还在第二个构造函数上应用了 \texttt{explicit} 关键字；我们会在后面的“显式构造函数”小节讨论它。
+
+构造函数的主要作用是在对象的生命期开始时执行一些操作。通常，这意味着数据成员初始化、资源分配（打开文件、套接字、内存分配），甚至执行一些特殊逻辑（比如日志记录）。
+
+在我们的例子中，构造函数只触及构造函数中一个特殊部分的数据成员，这个部分称为成员初始化列表（member initializer list）：例如 \texttt{id\_\{-1\}, name\_\{"none"\}}。在这个初始化器列表中，我们还可以调用基类（如果有的话）的构造函数。稍后我们会在“继承”小节讨论继承。
+
+成员初始化列表比使用构造函数体更高效。有时它甚至是初始化该值的唯一选择，比如对于那些不可赋值的类型。请看下面这个错误的替代写法：
+
+\begin{codebox}[cpp]
+class Product {
+public:
+Product() { id_ = 0; name_ = "none"; } // 糟糕的代码，仅用于说明
+private:
+int id_;
+std::string name_;
+};
+\end{codebox}
+
+这段代码会得到与前面例子相同的数据成员值，但数据成员是分两步设置的，而不是一步。使用成员初始化列表时，数据成员被直接设置，等同于调用：\texttt{int id\_ \{ 0 \}} 或 \texttt{std::string name\_ \{"none"\}}。另一方面，如果我们在构造函数体中使用赋值，就需要两步：
+
+\begin{codebox}[cpp]
+// 第 1 步：默认初始化：
+int id_; // 不确定值！
+std::string name_; // 调用默认构造函数
+// 第 2 步：赋值：
+id_ = 0;
+name_ = "none";
+\end{codebox}
+
+虽然对于 \texttt{int} 这类内建简单类型而言，这可能不是什么大问题，但对于 \texttt{string} 这类较大的对象，你会需要更多的 CPU 周期。请不要这样写代码，而应当使用成员初始化列表来高效地初始化你的数据成员。
+
+关于初始化器列表，还有一个重要方面：初始化的顺序。这在 C++ 规范（The C++ Specification）的 11.10.3 Classes 中有规定：
+
+非静态数据成员（non-static data members）会按照它们在类定义中声明的顺序进行初始化（与 mem-initializers 的顺序无关）。
+
+当我以下面的方式编写构造函数时：
+
+\begin{codebox}[cpp]
+Product() : name_{"none"}, id_{-1} { }
+\end{codebox}
+
+值会被正确设置，但顺序会与我们所想的不同。下面是使用 \texttt{-Wall} 选项编译时来自 GCC 的警告（在 Compiler Explorer 上试验）：
+
+\begin{codebox}[cpp]
+In constructor 'Product::Product()':
+warning: 'Product::name_' will be initialized after [-Wreorder] ...
+warning: 'int Product::id_' [-Wreorder] ...
+\end{codebox}
+
+当你隐含了对这些值的某种依赖时，初始化顺序可能至关重要。例如，我们可以写出下面这个人为的示例：
+
+\begin{codebox}[cpp]
+struct S {
+int x;
+int y;
+int z;
+S(): x{0}, y{1}, z{x+y} { }
+// S(): y{0}, z{0}, x{z+y}, { }
+};
+\end{codebox}
+
+在上面的例子中，第一个构造函数初始化 \texttt{x} 和 \texttt{y}，然后用这些值去初始化 \texttt{z}。这很复杂，可能难以阅读，但它是正确工作的。另一方面，在第二个（被注释掉的）构造函数中，初始化的顺序会对初始化 \texttt{x} 产生未定义行为（undefined behavior，UB），因为 \texttt{z} 和 \texttt{y} 还没有被初始化。最好避免这类依赖，以把出 bug 的风险降到最低。
+
+我们来看通过创建一些 \texttt{Product} 类的对象，构造函数是如何工作的：
+
+\begin{codebox}[cpp]
+Product none;
+\end{codebox}
+
+在第一个例子中，我们创建了 \texttt{none} 对象，它是默认构造的。编译器会调用我们的默认构造函数；因此，数据成员会被初始化为 \texttt{id\_ = -1} 和 \texttt{name\_ = "none"}。
+
+\begin{codebox}[cpp]
+Product car(10, "car");
+\end{codebox}
+
+这个例子使用了直接初始化（direct initialization）的形式，它会调用带两个参数的构造函数。调用之后，数据成员将是：\texttt{id\_ = 10} 和 \texttt{name\_ = "car"}。
+
+最后一个例子：
+
+\begin{codebox}[cpp]
+Product tvSet{100, "tv set" };
+\end{codebox}
+
+这一次我们也调用了带两个参数的构造函数，但这种语法被称为直接列表初始化（direct list initialization）——\texttt{\{\}}。请注意，我在构造函数的初始化器列表中也使用了这种初始化形式。
+
+下面是完整的例子：
+
+\begin{codeboxt}[cpp]{代码清单 2.4 Product 类的构造函数。在 Compiler Explorer 上运行}
+#include <iostream>
+#include <string>
+class Product {
+public:
+Product() : id_{-1}, name_{"none"} { } // 默认构造函数
+explicit Product(int id, const std::string& name)
+: id_{id}, name_{name} { }
+int Id() const { return id_; }
+std::string Name() const { return name_; }
+private:
+int id_;
+std::string name_;
+};
+int main() {
+Product none;
+std::cout << none.Id() << ", " << none.Name() << '\n';
+Product car(10, "super car");
+std::cout << car.Id() << ", " << car.Name() << '\n';
+Product tvSet{77, "tv set" };
+std::cout << tvSet.Id() << ", " << tvSet.Name() << '\n';
+}
+\end{codeboxt}
+
+你也许会挠头问：为什么我把 \texttt{name} 参数声明为 \texttt{const std::string\&} 而不只是 \texttt{std::string\&}？首先，我们不想在构造函数体内修改这个参数。更重要的是，\texttt{const T\&}（\texttt{const} 引用）可以绑定到像字符串字面量 \texttt{"super car"} 这样的“临时”对象。如果没有 \texttt{const} 引用，我们就得传入某个具名的 \texttt{string} 对象。或者，我们也可以按值传递名称，并对该参数执行一次“移动操作（move operation）”。在本书后面，我会详细讨论这个话题；参见章节：一个用例——初始化 string 数据成员的最佳方式。
+
+\section{更多关于统一初始化}
+
+带花括号“\texttt{\{\}}”的语法，实际上是 C++11 中一个强大的特性，称为列表初始化（list initialization），也叫“统一（uniform）”或“花括号（brace）”初始化。其主要动机是创建一种统一的初始化数据的方式，并避免一些问题。
+
+例如，由于 C++ 语言语法规则的原因，下面这行代码无法编译：
+
+\begin{codeboxt}[cpp]{代码清单 2.5 最令人头疼的解析规则。在 Compiler Explorer 上运行}
+#include <iostream>
+#include <string>
+struct Box { };
+struct Product {
+Product(): name{"default product"} { }
+Product(const Box& b) : name{"box"}{ }
+std::string name;
+};
+int main() {
+Product p();
+// << 1.
+std::cout << p.name;
+Product p2(Box());
+// << 2.
+std::cout << p2.name;
+}
+\end{codeboxt}
+
+\texttt{Product p();} 这一行看起来人畜无害，让人以为会调用默认构造函数。不幸的是，编译器把它当成了某个函数的声明！C++ 有一条规则：任何可以被解析为声明（declaration）的东西，都必须被解释为声明。在我们的语境下，这一行可能意味着一个名为 \texttt{p} 的局部函数，返回 \texttt{Product} 且不接受任何参数。类似地，带 \texttt{p2} 的那一行也会导致编译器错误，这一次编译器认为我们声明了一个名为 \texttt{p2} 的局部函数，返回 \texttt{Product} 并接受 \texttt{Box} 作为参数。
+
+但幸运的是，我们至少有两种修复方式：
+
+\begin{codebox}[cpp]
+Product p{};
+Product p1;
+Product p2{Box()};
+Product p3{Box{}};
+\end{codebox}
+
+它按预期工作，而列表初始化语法是最一致的选择。试着在 Compiler Explorer 上修改这个例子并修复代码。如果你想更多地了解这条规则，这里有一篇好文章：《最令人头疼的解析：如何快速发现并修复它》——Fluent C++。
+
+列表初始化也能处理多个参数，并且可以用在初始化器列表内部：
+
+\begin{codeboxt}[cpp]{代码清单 2.6 多个参数与花括号。在 Compiler Explorer 上运行}
+#include <iostream>
+#include <string>
+struct Product {
+Product() : name{"default product"}, value{} { }
+Product(char a, char b, char c, double v)
+: name{a, b, c}, value{v} { }
+std::string name;
+double value;
+};
+int main() {
+Product def{};
+std::cout << def.name << ", " << def.value << '\n';
+Product p{'x', 'y', 'z', 100.0};
+std::cout << p.name << ", " << p.value;
+}
+\end{codeboxt}
+
+在上面的例子中，我们不仅用列表初始化调用了带四个参数的 \texttt{Product} 构造函数，还用它来初始化 \texttt{name} 和 \texttt{value} 数据成员。此外，花括号列表初始化还有如下优点：
+
+\begin{itemize}
+\item 语法与聚合初始化相似；
+\item 增加了用一组对象来初始化容器的方式。例如，
+\end{itemize}
+
+\begin{codebox}[cpp]
+std::vector<int> v { 1, 2, 3, 4 },
+\end{codebox}
+
+\begin{itemize}
+\item 提供了一种更安全的初始化方式，会检查窄化（narrowing）转换。例如，\texttt{int v\{10.3\}} 无法编译，并报出窄化错误；而 \texttt{int v(10.3)} 可以工作，并可能产生不期望的结果。
+\end{itemize}
+
+列表初始化也有一些烦人之处。例如：
+
+\begin{codebox}[cpp]
+std::vector<int> vec1 { 1, 2 }; // 保存两个值：1 和 2
+std::vector<int> vec2 ( 1, 2 ); // 保存一个值：2！
+\end{codebox}
+
+上面你可以看到两种非常相似的 vector 声明，但当使用列表初始化时，你得到的 vector 与使用直接初始化时不同。列表版本会调用一个接受 \texttt{std::initializer\_list<int>} 的特殊构造函数，而第二个则调用一个接受 \texttt{(size\_type count, const int\& value = int())} 的构造函数。
+
+此外，对于 C++14 中的 \texttt{auto} 类型推导：
+
+\begin{codebox}[cpp]
+auto i = 42;
+// i 是一个值为 42 的 int
+auto j(42);
+// j 是一个值为 42 的 int
+auto k{42};
+// 在 C++17 之前，k 是 std::initializer_list<int>！
+\end{codebox}
+
+幸运的是，这个“不一致”在 C++17 中被修复了，现在 \texttt{auto k\{42\}} 会推导出 \texttt{int}。更多内容见 C++17 详解：修复与弃用 @C++ Stories。
+
+C++ 核心指南建议坚持这种初始化方式，因为它的好处超过了反面意见。参见 ES.23。
+
+ES.23：优先使用 \texttt{\{\}}-初始化语法
+
+理由：优先使用 \texttt{\{\}}。\texttt{\{\}} 初始化的规则比其它初始化形式更简单、更通用、更不易歧义，也更安全。只有在你确定不会发生窄化转换时才使用 \texttt{=}。对于内建算术类型，只在配合 \texttt{auto} 时才使用 \texttt{=}。避免使用 \texttt{()} 初始化，因为它会引发解析歧义。
+
+该指南还提到了一些例外：
+
+例外：对于容器，传统上用 \{…\} 表示一组元素，用 (…) 表示大小：\texttt{vector<int> v(10); // 10 个元素，默认值为 0}
+
+\begin{codebox}[cpp]
+vector<int> v2{10}; // 含有 1 个元素的 vector，元素值为 10
+\end{codebox}
+
+在本书中，我会用 \texttt{\{\}} 进行变量初始化，并在必要时说明例外情况。
+
+\section{构造函数的函数体}
+
+在成员初始化列表之后，每个构造函数都有一个常规的函数体 \texttt{\{ \}}、\texttt{...}，你可以在其中执行额外的步骤来修改变量或调用其它函数。常规函数与构造函数的唯一区别在于：构造函数不能返回任何值。通常，构造函数会抛出异常来报告错误。
+
+下面这个小例子展示了如何向构造函数体添加日志，并在出错时抛出异常：
+
+\begin{codeboxt}[cpp]{代码清单 2.7 在构造函数中记录日志。在 Compiler Explorer 上运行}
+#include <iostream>
+#include <stdexcept> // for std::invalid_argument
+constexpr int LOWEST_ID_VALUE = -100;
+class Product {
+public:
+explicit Product(int id, const std::string& name)
+: id_{id}, name_{name} {
+std::cout << "Product(): " << id_ << ", " << name_ << '\n';
+if (id_ < LOWEST_ID_VALUE)
+throw std::invalid_argument{"id lower than LOWEST_ID_VALUE!"};
+}
+std::string Name() const { return name_; }
+private:
+int id_;
+std::string name_;
+};
+int main() {
+try {
+Product car(10, "car");
+std::cout << car.Name() << " created\n";
+Product box(-101, "box");
+std::cout << box.Name() << " created\n";
+}
+catch (const std::exception& ex) {
+std::cout << "Error - " << ex.what() << '\n';
+}
+}
+\end{codeboxt}
+
+上面的例子展示了一个执行日志记录和基本参数检查的构造函数。它使用了一个 \texttt{LOWEST\_ID\_VALUE}，这是一个用 \texttt{constexpr} 关键字标记的全局常量（这是我们第二次使用这个关键字）。
+
+\begin{myInfoBox}
+\texttt{constexpr} 说明符从 C++11 起就可用了，它保证某个值在编译时可用于常量表达式（constant expressions）。例如，你可以用这样的变量来设置 C 风格数组的元素个数。它常被视为“类型安全的宏定义”。这个关键字适用于所有内建平凡（trivial）类型，如整型值、浮点型，甚至字符字面量（在 C++20 中，\texttt{std::string} 可以用于 \texttt{constexpr} 语境，但不能用于运行时可用的变量）；也可以声明自定义的“constexpr 就绪”类型。你还可以让一个函数成为 \texttt{constexpr}，并有可能在编译期求值；不过，本书不会涵盖此类函数。更多内容见 @C++Reference 的 \texttt{constexpr}。
+\end{myInfoBox}
+
+如果你运行这个程序，会看到如下输出：
+
+\begin{codebox}[cpp]
+Product(): 10, car
+car created
+Product(): -101, box
+Error - id cannot be lower than LOWEST_ID_VALUE!
+\end{codebox}
+
+请注意，虽然调用了两个构造函数，但我们看到只有第一个成功了。由于 \texttt{box} 的构造函数抛出了异常，这个对象不被视为已完全创建。这一点我们稍后在讨论析构函数（destructors）时会进一步说明。
+
+\section{为 DataPacket 添加构造函数}
+
+
+\begin{codeboxt}[cpp]{代码清单 2.8 添加构造函数。在 Compiler Explorer 上运行}
+class DataPacket {
+std::string data_;
+size_t checkSum_;
+size_t serverId_;
+public:
+DataPacket() : data_{}, checkSum_{0}, serverId_{0} { }
+explicit DataPacket(const std::string& data, size_t serverId)
+: data_{data}, checkSum_{calcCheckSum(data)}, serverId_{serverId}
+{ }
+const std::string& getData() const { return data_; }
+size_t getCheckSum() const { return checkSum_; }
+size_t getServerId() const { return serverId_; }
+};
+\end{codeboxt}
+
+下面是创建一些对象的演示代码：
+
+\begin{codeboxt}[cpp]{代码清单 2.9 添加构造函数（演示）。在 Compiler Explorer 上运行}
+void printInfo(const DataPacket& packet) {
+std::cout << "data: " << packet.getData() << '\n';
+std::cout << "checkSum: " << packet.getCheckSum() << '\n';
+std::cout << "serverId: " << packet.getServerId() << '\n';
+}
+int main() {
+DataPacket empty;
+printInfo(empty);
+DataPacket zeroed{};
+printInfo(zeroed);
+DataPacket packet{"Hello World", 101};
+printInfo(packet);
+DataPacket reply{"Hi, how are you?", 404};
+printInfo(reply);
+}
+\end{codeboxt}
+
+输出为：
+
+\begin{codebox}[cpp]
+data:
+checkSum: 0
+serverId: 0
+data:
+checkSum: 0
+serverId: 0
+data: Hello World
+checkSum: 1052
+serverId: 101
+data: Hi, how are you?
+checkSum: 1375
+serverId: 404
+\end{codebox}
+
+在上面的例子中，我们使用了两个构造函数：
+
+\begin{itemize}
+\item 第一个是默认构造函数，把数据成员初始化为默认值。它会用于默认初始化和值初始化。
+\item 第二个构造函数接受多个参数，并将它们与数据成员对应起来。这个构造函数让我们可以一次性传入所有参数（之前我们需要调用 setter）。它接受两个参数，但我们可以按需初始化任意多个数据成员。例如，构造函数保证了 \texttt{checkSum\_} 变量与 \texttt{data\_} 相匹配。由于这两个成员彼此相关，借助构造函数和 \texttt{setData} 成员函数，我们使这种关系保持安全。
+\end{itemize}
+
+我们也可以在一个类内部使用默认成员初始化器，但这一点我们会在单独的章节中详细讨论。
+
+\section{编译器生成的默认构造函数}
+
+虽然 C++ 允许你实现各种构造函数，但它也能通过自动声明并定义一个隐式默认构造函数来让你的生活更轻松。换句话说，如果你写了一个没有默认构造函数的类类型：
+
+\begin{codebox}[cpp]
+class Example {
+public:
+std::string Name() const { return name_; }
+private:
+std::string name_;
+};
+\end{codebox}
+
+那么编译器会创建一个隐式的空构造函数：
+
+\begin{codebox}[cpp]
+inline Example() noexcept { }
+\end{codebox}
+
+一个简单的规则是：如果一个类没有用户声明的构造函数，编译器会在可能的情况下创建一个默认构造函数。
+
+来看一下：
+
+\begin{codeboxt}[cpp]{代码清单 2.10 隐式默认构造函数。在 Compiler Explorer 上运行}
+struct Value {
+int x;
+};
+struct CtorValue {
+CtorValue(int v): x{v} { }
+int x;
+};
+int main() {
+// fine, default constructor available
+Value v;
+// CtorValue y;
+// error! no default ctor available
+CtorValue z{10}; // using custom ctor
+}
+\end{codeboxt}
+
+正如你在上面看到的，编译器会为 \texttt{Value} 类创建一个隐式默认构造函数（因为它没有其它构造函数），但不会为 \texttt{CtorValue} 类生成默认构造函数。还要注意，\texttt{Value::x} 会是一个不确定值，因为默认构造函数是空的，不会为 \texttt{x} 设置任何值。
+
+\begin{myWarnBox}
+默认构造函数只对数据成员进行默认初始化，因此对于内建类型来说，这意味着不确定值！
+\end{myWarnBox}
+
+
+你可以用两个关键字来控制这样一个默认构造函数的创建：\texttt{default} 和 \texttt{delete}。简而言之，\texttt{default} 告诉编译器使用默认实现，而 \texttt{delete} 则阻止该实现。
+
+\begin{codeboxt}[cpp]{代码清单 2.11 默认与删除的构造函数。在 Compiler Explorer 上运行}
+struct Value {
+Value() = default;
+int x;
+};
+struct CtorValue {
+CtorValue() = default;
+CtorValue(int v): x{v} { }
+int x;
+};
+struct DeletedValue {
+DeletedValue() = delete;
+DeletedValue(int v): x{v} { }
+int x;
+};
+int main() {
+Value v;
+// fine, default constructor available
+CtorValue y;
+// ok now, default ctor available
+CtorValue z{10}; // using custom ctor
+// DeletedValue w;
+// err, deleted ctor!
+DeletedValue u{10}; // using custom ctor
+}
+\end{codeboxt}
+
+在上面的例子中，你可以看到我们声明了 \texttt{Value()} \texttt{default;}，这告诉 \texttt{=} 编译器创建一个空的（什么都不做）实现。此外，在 \texttt{CtorValue} 类中，我们也使用了同样的技术，如你所见，现在默认构造可以正常工作了。第三个类将其默认构造函数声明为 \texttt{= delete}，如果你想用它默认的构造函数来创建这个类的对象，就会得到一个错误。
+
+如果你的类型含有不可默认构造的数据成员，或者继承自一个不可默认构造的类型，那么隐式默认构造函数就不会被创建。这包括引用、\texttt{const} 数据成员、联合体（unions）等等。完整的列表见 @C++Reference。
+
+\begin{myInfoBox}
+你可能还会问 \texttt{Value()} \texttt{default} 与 \texttt{=} \texttt{Value() \{ \}} 有什么区别；它们两者都是“空的”。不过，根据 C++ 标准，第二个构造函数被视为用户声明的（user-declared）或用户提供的（user-provided），并且会在类型特性上产生一些后果。我们会在后面讲到拷贝构造函数的“平凡类与用户声明 / 用户提供的默认构造函数”小节时再讨论这一点。
+\end{myInfoBox}
+
+\section{显式构造函数与转换}
+
+在我们继续之前，必须解决一个重要情况：\texttt{explicit} 关键字，它可以出现在构造函数声明之前。为什么它很重要？这个关键字是什么意思？简而言之，它能阻止隐式转换，有时还能让代码更易读。
+
+作为实验，我们先从下面的代码开始：
+
+\begin{codebox}[cpp]
+struct Product {
+Product() : name{"default product"}, value{} { }
+Product(int v) : name{"basic"}, value{v} { }
+Product(const std::string& n, int v)
+: name{n}, value{v} { }
+std::string name;
+int value;
+};
+\end{codebox}
+
+代码看起来没问题，但现在你可以用一种有点不寻常的方式创建 \texttt{Product} 对象：
+
+\begin{codebox}[cpp]
+Product numbers = 100.2;
+// 拷贝初始化
+Product box = {"a box", 1};
+// 拷贝列表初始化
+\end{codebox}
+
+
+我们可以这样理解：这两行创建了 product 对象，但数据成员得到了什么值？这需要澄清一下！第一行的情形尤其有趣，因为我传入了一个 \texttt{100.2} 的 double 值，编译器试图把它转换成 \texttt{int} 类型（一次窄化转换），然后再传给构造函数。
+
+此外，对于函数调用中的隐式转换，问题就更严重了：
+
+\begin{codeboxt}[cpp]{代码清单 2.12 隐式转换。在 Compiler Explorer 上运行}
+void printProduct(const Product& prod) {
+std::cout << prod.name << ", " << prod.value << '\n';
+}
+int main() {
+double someRandomNumber = 100.1;
+printProduct(someRandomNumber);
+printProduct({"a box", 2});
+}
+\end{codeboxt}
+
+输出为：
+
+\begin{codebox}[cpp]
+basic, 100
+a box, 2
+\end{codebox}
+
+关键的思路是：当你把参数传入函数调用时，编译器会对这些参数执行拷贝初始化。
+
+正如你所见，主要问题在于只接受一个参数（或者其它参数被设为某个默认值）的构造函数。但即便有多个参数，当你传入一个初始化器列表时，转换也可能发生。为了阻止这类不期望、令人意外的转换，最好使用 \texttt{explicit} 关键字。
+
+当我们应用它时：
+
+\begin{codebox}[cpp]
+explicit Product(int v) : name{"basic"}, value{v} { }
+explicit Product(const std::string& n, int v) : name{n}, value{v} { }
+\end{codebox}
+
+编译器会报告如下错误：
+
+\begin{codebox}[cpp]
+In function 'int main()':
+error: invalid initialization of reference of type 'const Product&'
+from expression of type 'double'
+28 |
+printProduct(someRandomNumber);
+|
+^~~~~~~~~~~~~~~~
+error: converting to 'const Product' from initializer list would use
+explicit constructor 'Product::Product(const std::string&, int)'
+29 |
+printProduct({"a box", 2});
+|
+~~~~~~~~~~~~^~~~~~~~~~~~~~
+\end{codebox}
+
+完整的例子见 Compiler Explorer。
+
+要修复这段代码，你需要明确地告诉编译器去创建该类型：
+
+\begin{codebox}[cpp]
+int someRandomNumber = 100;
+printProduct(Product{someRandomNumber});
+\end{codebox}
+
+从实际角度看，带多个参数并以初始化器列表调用的情形并不是问题。编译器会调用合适的构造函数，并且不会执行任何窄化转换。正因如此，通常没有理由把多参数构造函数标记为 \texttt{explicit}。例如：
+
+\begin{codebox}[cpp]
+Product toy = {"a toy", 1.5};
+printProduct({"a box", 2.0});
+\end{codebox}
+
+这段代码会产生关于“\texttt{narrowing conversion ... from double to int}”的错误。代码见 Compiler Explorer。
+
+\begin{myInfoBox}
+没有用 \texttt{explicit} 关键字声明的构造函数，也叫转换构造函数（converting constructors）。它们参与隐式转换序列。在 C++03 中，这些构造函数还必须能用单个参数调用，但这个限制在 C++11 中被取消了。关于隐式转换的更多内容，请见本章单独的一节。
+\end{myInfoBox}
+
+
+\section{直接初始化与拷贝初始化的区别}
+
+在讨论了几个关于显式构造函数的例子之后，我们终于可以回答直接初始化与拷贝初始化的区别了。我们有两种主要的初始化方式。拷贝：
+
+\begin{codebox}[cpp]
+int x = 42;
+// 拷贝初始化的一种形式
+void foo(int param) { }
+foo(x);
+// 对参数执行拷贝初始化
+int anotherFoo() { return 42; }
+// 对返回值执行拷贝初始化
+struct Point { int x; int y; };
+Point pt { 0, 1 };
+// 聚合初始化
+Point p2 = { 10, 11 };
+// 对每个元素使用拷贝初始化
+\end{codebox}
+
+下面则是直接初始化的基本语法：
+
+\begin{codebox}[cpp]
+int y {42};
+// 直接初始化的一种形式
+double z (42.2);
+// 带圆括号的直接初始化
+\end{codebox}
+
+总结如下：
+
+\begin{itemize}
+\item 直接初始化（direct initialization）表现得像是对一个重载函数的函数调用：这些函数，在这种情况下，就是该类型的各个构造函数（包括显式的构造函数）。重载决议（overload resolution）会找到最匹配的构造函数，并在需要时进行任何隐式转换。
+\item 拷贝初始化（copy initialization）会构造一个隐式转换序列：它试图把参数转换成给定类型的对象。拷贝初始化不会考虑显式构造函数。
+\end{itemize}
+
+例如，由于聚合初始化使用拷贝初始化来初始化子对象，所以这段代码无法工作：
+
+\begin{codebox}[cpp]
+struct Point {
+explicit Point(int a, int b): x{a}, y{b} { }
+int x;
+int y;
+};
+struct Aggregate {
+int a;
+Point p;
+};
+int main() {
+Aggregate ag { 0, {0, 1}};
+// <<
+Aggregate ag2 = { 0, {0, 1}}; // <<
+}
+\end{codebox}
+
+GCC 报告如下错误：
+
+\begin{codebox}[cpp]
+error: converting to 'Point' from initializer list would use explicit construct\
+or 'Point::Point(int, int)'
+19 |
+Aggregate ag { 0, {0, 1}};
+\end{codebox}
+
+要修复它，你需要显式地写出类型名：
+
+\begin{codebox}[cpp]
+int main() {
+Aggregate ag { 0, Point{0, 1}};
+Aggregate ag2 = { 0, Point{0, 1}};
+}
+\end{codebox}
+
+可工作的代码见 Compiler Explorer。
+
+\section{更进一步}
+
+\texttt{explicit} 关键字非常重要，以至于它在 C++ 核心指南中有自己的一条规则：C++ 核心指南 C.46。
+
+C.46：默认情况下，把单参数构造函数声明为 \texttt{explicit}
+
+理由：避免意外的转换。
+
+\begin{myInfoBox}
+此外，在 C++20 中，我们有扩展语法 \texttt{explicit(bool)}，可以有条件地标记显式构造函数。这是一个有点高级的特性，所以本书不会涉及。你可以在 @C++Reference 处阅读更多。
+\end{myInfoBox}
+
+\section{隐式转换与转换构造函数}
+
+虽然最好使用 \texttt{explicit} 构造函数，但也有一些情况下隐式转换能救场。我们来看标准库中的几个构造函数：
+
+\begin{codebox}[cpp]
+// optional：
+template < class U = T >
+constexpr optional( U&& value ); // 有条件地 explicit
+// std::string：
+constexpr basic_string( const CharT* s, size_type count,
+const Allocator& alloc = Allocator() );
+// pair
+template< class U1 = T1, class U2 = T2 >
+constexpr pair( U1&& x, U2&& y ); // 有条件地 explicit
+\end{codebox}
+
+目前，我们可以跳过“有条件的显式”这部分。但正如你所见，对于“包装（wrapper）”类型，通常很方便地从“被包装”的类型来初始化它们。例如：
+
+
+\begin{codebox}[cpp]
+void foo(const std::string& s) { }
+foo("Hello World");
+std::optional<int> optX = 10;
+std::pair<int, double> p = { 10, 10.5};
+\end{codebox}
+
+上面所有的表达式都使用了拷贝初始化，因此不会用到显式构造函数。传入 \texttt{"Hello World"}（它是 \texttt{const char*}）要比调用下面这样方便得多：
+
+\begin{codebox}[cpp]
+foo(std::string{"Hello World"});
+\end{codebox}
+
+\begin{myInfoBox}
+如果设计得当，包装其它类型的类型很适合拥有转换构造函数。在 C++20 中，当被包装的类型带有 \texttt{explicit} 构造函数时，甚至可以有条件地设置 \texttt{explicit} 构造函数。更多内容见 C++20 的有条件显式构造函数——C++ Team Blog。
+\end{myInfoBox}
+
+同样值得了解的是，编译器只允许使用一次转换序列，而不是任意多次。例如：
+
+\begin{codebox}[cpp]
+struct Number {
+Number(int n) { }
+};
+struct Special {
+Special(Number num) {}
+};
+\end{codebox}
+
+在上面的情形中，你可以调用：
+
+\begin{codebox}[cpp]
+Special spec { 42 };
+\end{codebox}
+
+这会使用一次从 \texttt{42}（一个 \texttt{int}）到 \texttt{Number} 的转换序列，然后调用 \texttt{Special(Number num)} 构造函数。
+
+另一方面，拷贝语法无法工作：
+
+
+\begin{codebox}[cpp]
+Special spec = 42; // 无法编译！
+\end{codebox}
+
+这个无法编译，因为编译器必须先把这个整数转换成 \texttt{Number}，然后再把 \texttt{Number} 转换成 \texttt{Special}。
+
+根据 @C++ Reference 的拷贝初始化：
+
+对于 \texttt{T object = other;}：如果 \texttt{T} 是类类型，并且 \texttt{other} 的类型去掉 cv 限定符之后既不是 \texttt{T} 也不是从 \texttt{T} 派生的；或者如果 \texttt{T} 是非类类型，但 \texttt{other} 的类型是类类型，那么就会检查那些能把 \texttt{other} 的类型转换成 \texttt{T}（或者，如果 \texttt{T} 是类类型且有可用的转换函数，则转换成从 \texttt{T} 派生的类型）的用户定义转换序列，并通过重载决议选出最佳的一个。如果使用了转换构造函数，转换的结果就是去掉 cv 限定符后的 \texttt{T} 类型的一个纯右值（prvalue）表达式，然后它被用来直接初始化该对象。
+
+这里的关键规则是，编译器只能执行一次转换步骤，而我们的例子需要两步。这就是为什么我们会得到错误。你可以通过把转换写明确来修复代码：
+
+\begin{codebox}[cpp]
+Number n = 42;
+Special spec = n;
+\end{codebox}
+
+无法工作的代码见 Compiler Explorer。
+
+根据 over.ics.user：
+
+用户定义的转换序列（user-defined conversion sequence）由一段初始的标准转换序列、后跟一个用户定义的转换、再后跟第二段标准转换序列组成。
+
+\begin{myInfoBox}
+更多内容请见 @Microsoft Learn 的标准转换，以及 @Microsoft Learn 的用户定义类型转换（C++）。
+\end{myInfoBox}
+
+
+\section{构造函数小结}
+
+这可能是本书中最长的一章，因为我们要为全书其余部分铺垫背景。一旦你了解了数据成员如何通过构造函数进行初始化的基本知识，我们就可以继续深入，探索各种新的 C++ 特性和例子。现在，有必要总结另外两种构造函数：拷贝构造函数和移动构造函数。请继续阅读下一章。

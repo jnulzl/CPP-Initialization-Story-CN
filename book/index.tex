@@ -1,0 +1,35 @@
+% book/index.tex —— 封面、目录与全书章节索引
+% 调整章节顺序：直接移动下面的行即可
+
+\myFrontNoToc{content/front/00-title}
+
+\newpage
+\thispagestyle{empty}
+\tableofcontents
+\newpage
+
+\myFront{关于本书}{content/front/00-about}
+\myFront{关于作者}{content/front/01-author}
+\myFront{致谢}{content/front/02-ack}
+\myFront{修订历史}{content/front/03-rev}
+
+\myChapter{1}{局部变量与简单类型}{content/main/01}
+\myChapter{2}{用构造函数初始化}{content/main/02}
+\myChapter{3}{拷贝与移动操作}{content/main/03}
+\myChapter{4}{委托构造函数与继承构造函数}{content/main/04}
+\myChapter{5}{析构函数}{content/main/05}
+\myChapter{6}{类型推导与初始化}{content/main/06}
+\myChapter{7}{第 1–6 章小测验}{content/main/07}
+\myChapter{8}{非静态数据成员初始化}{content/main/08}
+\myChapter{9}{作为数据成员的容器}{content/main/09}
+\myChapter{10}{非规则数据成员}{content/main/10}
+\myChapter{11}{非局部对象}{content/main/11}
+\myChapter{12}{C++20 中的聚合体与指定初始化器}{content/main/12}
+\myChapter{13}{技巧与用例}{content/main/13}
+\myChapter{14}{最终测验与练习}{content/back/00-quiz}
+
+\appendix
+\myAppendix{1}{特殊成员函数生成规则}{content/appendix/01}
+\myAppendix{2}{测验与练习答案}{content/appendix/02}
+
+\myFront{参考文献}{content/back/02-references}

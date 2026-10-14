@@ -1,0 +1,279 @@
+让我们从一个简单的问题开始：“什么是初始化（initialization）？”当我们查看 C++ 参考\footnote{\url{https://en.cppreference.com/w/cpp/language/initialization}} 中的定义时，会读到：
+
+变量在构造时获得其初始值（Initialization of a variable provides its initial value at the time of construction）。
+
+我们可以把这个定义翻译成下面的例子：
+
+\begin{codebox}[cpp]
+void foo() {
+int x = 42;
+// ... 稍后使用 'x' ...
+}
+\end{codebox}
+
+上面我们写了一个带有局部变量 \texttt{x} 的函数。该变量被声明为 \texttt{int}，并用值 \texttt{42} 进行初始化。这只是你为变量赋予初始值的多种方式之一。下面是更多的选择：
+
+\begin{codebox}[cpp]
+struct Point { int x; int y; };
+// 声明一个自定义类型
+Point createPoint(int x) { return {x, -x}; }
+int main() {
+int x { 42 };
+// 列表初始化
+double y = { 100.0 };
+// 拷贝列表初始化
+auto ptr = std::make_unique<float>(90.5f); // 类型推导 auto
+auto z = createPoint(42);
+// 通过工厂函数
+std::string s (10, 'x');
+// 调用构造函数
+Point p { 10 };
+// 聚合初始化
+std::array<float, 100> numbers { 1.1f, 2.2f }; // 数组初始化
+// ...
+}
+\end{codebox}
+
+你还能想出许多其他形式来设置值。我们也可以把这个语法扩展到类的非静态数据成员、\texttt{static} 变量、线程局部变量，甚至动态内存分配上。
+
+理论上，初始化很简单：“把一个值放进新创建变量的内存位置”。然而，这样的操作会牵涉到应用程序代码的许多部分（局部作用域 vs. 非局部作用域 vs. 线程），以及内存中的不同位置（比如栈 vs. 堆）。也正因如此，语法或行为可能会略有不同。
+
+C++ 中至少有如下几种初始化形式：
+
+\begin{itemize}
+\item 聚合初始化（aggregate initialization）
+\item 常量初始化（constant initialization）
+\item 默认初始化（default initialization）
+\item 直接初始化（direct initialization）
+\item 拷贝初始化（copy initialization）
+\item 列表初始化（list initialization）
+\item 引用初始化（reference initialization）
+\item 值初始化（value initialization）
+\item 零初始化（zero initialization）
+\item 以及相关的主题，如拷贝消除（copy elision）、静态变量、转换序列、构造函数、赋值、动态内存、存储期等等。
+\end{itemize}
+
+虽然这份清单听起来很复杂，但我们会一步步地讲解这些主题，逐步揭示核心概念。随后我们会讨论更高级的例子，看看 C++ 的“内部机制”究竟发生了什么。
+
+虽然我们可以用整数和其他数值类型来解释大部分情况，但最好还是用更贴近实际的东西来讲解。本书从一些基础自定义类型开始，然后讨论它们早期实现中可能遇到的各种问题。之后这些类型会不断扩展，为我们提供更多的背景和令人信服的用例。
+
+\section{从简单类型开始}
+
+在 C++ 中定义类或结构体（struct，即自定义类型）可以让你更自然地建模问题域并解决问题。与其用一堆变量和函数来折腾，不如把它们分组，并提供一致的 API（Application Programming Interface，应用程序编程接口）。C++ 提供了一组内建类型，包括布尔、整型、字符和浮点类型。此外，你还可以使用标准库（Standard Library）中的对象，比如各种容器、\texttt{std::string}、\texttt{std::vector}、\texttt{std::map}、\texttt{std::set} 等等。你可以把这些基础组件收集起来，构建出自己的类型。
+
+为了给我们的主题铺陈背景，我们先从一个表示汽车信息的类型开始，它用于一个汽车列表应用。系统从数据库中读取汽车/卡车的信息，并在应用中显示出来。为了简单起见，这个类型包含四个成员：名称（一个 \texttt{std::string}）、生产年份、座位数量，以及引擎功率。
+
+下面是 \texttt{CarInfo} 类型的第一版代码：
+
+\begin{codeboxt}[cpp]{代码清单 1.1 简单的 CarInfo 结构。在 Compiler Explorer 上运行}
+#include <iostream>
+#include <string>
+struct CarInfo {
+std::string name;
+unsigned year;
+unsigned seats;
+double power;
+};
+int main() {
+CarInfo firstCar;
+firstCar.name = "Renault Megane";
+firstCar.year = 2003;
+firstCar.seats = 5;
+firstCar.power = 116;
+std::cout << "name: " << firstCar.name << '\n';
+std::cout << "year: " << firstCar.year << '\n';
+std::cout << "seats: " << firstCar.seats << '\n';
+std::cout << "power (hp): " << firstCar.power << '\n';
+}
+\end{codeboxt}
+
+\myGraphic{0.9}{images/fig_p018_1.png}{}
+
+在上面的例子中，我们定义了一个简单的结构体，用于保存 \texttt{CarInfo} 的数据。代码非常简单，存在一些问题，并且遵循 C++03 的风格。在接下来的几章里，我会带你通读这段代码，帮你理解其中的问题以及如何消除它们。我们还会对它进行现代化改造，加入最新的 C++（直到 C++20）特性。
+
+首先：\texttt{name}、\texttt{year}、\texttt{seats} 和 \texttt{power} 被称为非静态数据成员（non-static data members）。\texttt{CarInfo} 类的每个实例都拥有自己的一组这些成员。换句话说，我们把变量分组，以创建问题域中模型的表示。用户自定义类型也可能拥有静态数据成员（static data members），它们是给定类型所有实例之间共享的数据。例如，我们可以设想一个名为 \texttt{numAllCars} 的静态成员变量，用来表示程序中创建的车辆总数。我们会在第 11 章“静态变量”中讨论静态数据成员。
+
+现在，让我们详细研究这段代码。在 \texttt{main()} 函数中，变量 \texttt{firstCar} 的定义与声明：
+
+\begin{codebox}[cpp]
+CarInfo firstCar;
+\end{codebox}
+
+这被称为默认初始化（default initialization）；由于我们的 \texttt{struct} 很简单，它会让所有内建类型的非静态数据成员都保留为不确定值（indeterminate values）。类似地，对于在函数内声明的简单类型（因为这些变量具有自动存储期（automatic storage duration））²，你也会得到同样（潜在有 bug）的效果：
+
+\footnotetext{与之相反，静态对象和线程局部对象会被零初始化（zero initialized）。}
+
+\begin{codebox}[cpp]
+void foo() {
+int i;
+// 不确定值！
+double d;
+// 不确定值！
+}
+\end{codebox}
+
+另一方面，\texttt{std::string} 数据成员 \texttt{name} 会处于空状态（一个空字符串），因为它的默认构造函数（default constructor）会被调用。这一点我们稍后详述。
+
+一旦对象被创建但还未初始化，我们就可以访问它的成员并设置合适的值。默认情况下，\texttt{struct} 的成员是公开访问的（而 \texttt{class} 的成员是私有的）。这样一来，我们可以直接访问并修改它们的值。
+
+\begin{myInfoBox}
+\textbf{什么是“自动存储期”？}
+
+程序中的所有对象有四种可能的“存储”方式：自动、静态、线程，或动态。自动意味着内存在作用域开始时被分配，比如在函数中。大多数局部变量都具有自动存储期（automatic storage duration）（除了那些声明为 \texttt{static}、\texttt{extern} 或 \texttt{thread\_local} 的变量）。我们会在关于非局部对象的第 11 章³ 中进一步讨论这一点。
+\end{myInfoBox}
+
+\section{置为零值}
+
+在创建了 \texttt{CarInfo} 对象之后，多数数据成员都带有一些不确定值，你可能会感到很不满意。我们可以修正这一点，至少确保数据被置为“零”。请看：
+
+\begin{codeboxt}[cpp]{代码清单 1.2 CarInfo 结构的值初始化。在 Compiler Explorer 上运行}
+CarInfo emptyCar{};
+std::cout << "name: " << emptyCar.name << '\n';
+std::cout << "year: " << emptyCar.year << '\n';
+std::cout << "seats: " << emptyCar.seats << '\n';
+std::cout << "power (hp): " << emptyCar.power << '\n';
+\end{codeboxt}
+
+输出为：
+
+\begin{codebox}[cpp]
+name:
+year: 0
+seats: 0
+power (hp): 0
+\end{codebox}
+
+用空花括号 \texttt{\{\}} 进行的初始化被称为值初始化（value initialization）；默认情况下（对于内建类型，以及具有既非用户提供的也未被删除的默认构造函数的类），它会把数据置为“零”（会因类型不同而有所调整）。这类似于声明并定义如下变量：
+
+
+\begin{codebox}[cpp]
+int i{};
+// i == 0
+double d{};
+// d == 0.0
+std::string s{}; // s 是一个空字符串
+int j = {}; // 其它形式的值初始化
+std::string str = {}; // ...
+\end{codebox}
+
+这一次存储期无关紧要，值初始化对静态、动态、线程局部或自动变量表现一致。对于带有默认构造函数的类型（稍后详述），代码会调用它们；以 \texttt{string s;} 为例，会把它初始化为一个空字符串。
+
+\section{用聚合体进行初始化}
+
+我们的结构体非常简单，对于这类类型，C++ 有专门的规则，可以用所谓的聚合初始化（aggregate initialization）来初始化它们的内部值。这种语法也可以用于数组。下面是一些基本例子：
+
+\begin{codeboxt}[cpp]{代码清单 1.3 聚合初始化的基本语法。在 Compiler Explorer 上运行}
+// 数组：
+int arr[] { 1, 2, 3, 4 };
+float numbers[] = { 0.1f, 1.1f, 2.2f, 3.f, 4.f, 5. };
+int nums[10] { 1 }; // 1，其余全为 0
+// 结构体：
+struct Point { int x; int y; };
+struct Line { Point p1; Point p2; };
+Line longLone {0, 0, 100, 100};
+Line anotherLine = {100}; // 其余置为 0
+Line shortLine {{-10, -10}, {10, 10}}; // 嵌套
+\end{codeboxt}
+
+总结一下，对于上面的代码：
+
+\begin{itemize}
+\item 每个数组元素，或每个非静态类成员，按数组下标 / 在类定义中出现的顺序，从初始化器列表的对应项进行拷贝初始化（copy initialized）。
+\item 你可以对数组使用列表初始化；当不提供元素个数时，编译器会推导出元素数量。
+\item 如果你在初始化器列表中传入的元素少于数组的元素个数，剩余的元素会被值初始化。对于内建类型，这意味着零值。
+\item 对于结构体，你可以使用单个初始化器列表，也可以使用嵌套的列表；展开是递归进行的。
+\item 如果你提供的值少于聚合体中的数据成员数量，那么剩余的数据成员（按声明顺序）会被有效地值初始化。
+\end{itemize}
+
+第一个要点指出每个元素都是拷贝初始化的。等我们了解了显式构造函数（explicit constructors）之后，会回到这个话题，并解释拷贝初始化与直接初始化在语法上的区别。
+
+对于我们的结构体，我们可以写出如下测试代码：
+
+\begin{codeboxt}[cpp]{代码清单 1.4 CarInfo 结构的聚合初始化。在 Compiler Explorer 上运行}
+struct CarInfo {
+std::string name;
+unsigned year;
+unsigned seats;
+double power;
+};
+void printInfo(const CarInfo& c) {
+std::cout << c.name << ", "
+<< c.year << " year, "
+<< c.seats << " seats, "
+<< c.power << " hp\n";
+}
+int main() {
+CarInfo firstCar{"Megane", 2003, 5, 116 };
+printInfo(firstCar);
+CarInfo partial{"unknown"};
+printInfo(partial);
+CarInfo largeCar{"large car", 1975, 10};
+printInfo(largeCar);
+}
+\end{codeboxt}
+
+输出为：
+
+\begin{codebox}[cpp]
+Megane, 2003 year, 5 seats, 116 hp
+unknown, 0 year, 0 seats, 0 hp
+large car, 1975 year, 10 seats, 0 hp
+\end{codebox}
+
+不给出完整的定义，聚合体（aggregate）指的是一个简单类型（或数组），它具有全部公开的数据成员、没有虚函数、也没有用户提供的构造函数。
+
+我们会在本书后续部分讨论聚合体（并看到这类类型的完整定义）。此外，还有专门的一章讲解 C++20 中的聚合体与指定初始化器（designated initializer）。
+
+\section{默认数据成员初始化}
+
+如果你想为自己的数据成员提供某个默认值，该怎么办？通过值初始化，你可以让各种类型得到零值，但有时这可能并不够好。从 C++14 起，我们可以利用非静态数据成员初始化器（Non-static Data Member Initializers，NSDMI，也叫 Default Member Initializers，默认成员初始化器）来为聚合体提供默认值。请看：
+
+\begin{codeboxt}[cpp]{代码清单 1.5 默认成员初始化与聚合体。在 Compiler Explorer 上运行}
+#include <iostream>
+#include <string>
+struct CarInfo {
+std::string name { "unknown" };
+unsigned year { 1920 };
+unsigned seats { 4 };
+double power { 100. };
+};
+void printInfo(const CarInfo& c) { /* */ }
+int main() {
+CarInfo unknown;
+printInfo(unknown);
+CarInfo zeroed{};
+printInfo(zeroed);
+CarInfo partial{"large car", 1975};
+printInfo(partial);
+}
+\end{codeboxt}
+
+打印结果为：
+
+\begin{codebox}[cpp]
+unknown, 1920 year, 4 seats, 100 hp
+unknown, 1920 year, 4 seats, 100 hp
+large car, 1975 year, 4 seats, 100 hp
+\end{codebox}
+
+这个语法相当直观：你可以在这个数据成员被声明的地方就初始化它。这能防止你的数据带有不确定值而导致的意外 bug。从例子中可以看到，即便你使用默认初始化或值初始化，数据成员也会得到在 \texttt{struct} 声明中提供的值。如果你在聚合初始化器中给出较少的值，剩余成员会从声明中获取它们的默认值。
+
+严格来说，类内成员初始化器（in-class member initializers）从 C++11 起就已可用，但最初并不支持聚合类型。在本节中，我们只是浅尝辄止地介绍了这项好用的技术。关于这个主题，请参阅专门讲解非静态数据成员初始化的章节。
+
+\section{小结}
+
+在本章中，我们讨论了一些简单的自定义类型，并了解了初始化其数据成员的各种方式。我们从带有不确定值的对象出发，讲到零初始化，然后学习了聚合体，以及提供默认值的技术。
+
+需要记住的要点：
+
+\begin{itemize}
+\item 对象和变量的默认初始化（default initialization）会让内建类型得到不确定值，或者默认初始化复杂类型（如 \texttt{std::string} 并将其置为空字符串）。因此，务必保证你的对象和简单变量始终被初始化，这一点至关重要。
+\item 对于内建类型，像 \texttt{int x\{\};} 这样的值初始化实际上会对它们产生零初始化的效果，从而让它们为零（以各自的类型而言）。
+\item 通过值初始化 \texttt{CarInfo car\{\};}，所有数据成员（对于内建类型）会被零初始化，而对于复杂类型则会被默认初始化。
+\item 聚合体是全部公开数据成员的简单类型或数组；我们可以用聚合初始化语法来初始化它们。
+\item 得益于类内成员初始化器这一特性，你可以为自己的数据成员提供默认值。
+\end{itemize}
+
+\subsection{下一步是什么？}
+
+虽然简单类型很方便，但在 C++ 中，我们常常需要构建大型对象，其数据成员彼此依赖，或者带有不变式（invariants）。在这种情况下，最好把它们隐藏在成员函数之后，并在特定条件下才提供访问。在下一章中，我们会了解类与构造函数。我们也会扩展到目前为止学到的知识。

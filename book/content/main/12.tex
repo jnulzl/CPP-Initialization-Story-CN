@@ -1,0 +1,269 @@
+在本书中，你已经见过很多直观上简单、其所有数据成员都是 public 的结构体。这类类型连同数组一起，被称为聚合体（aggregates）。在本章中，我们将介绍 C++20 的一些改动，以及初始化这类对象的新方式。
+
+\section{C++20 中的聚合体}
+
+总结一下，截止 C++20，C++ 标准中聚合体类型（aggregate type）的定义如下：\texttt{dcl.init.aggr}\footnote{\url{https://timsong-cpp.github.io/cppwp/n4868/dcl.init.aggr\#:initialization,aggregate}}。
+
+聚合体是一个满足以下条件的数组或类类型：
+
+\begin{itemize}
+\item 没有用户提供的、显式的或继承的构造函数；
+\item 没有私有或受保护的非静态数据成员；
+\item 没有虚函数，并且
+\item 没有虚的、私有的或受保护的基类。
+\end{itemize}
+
+下面是一些聚合体的例子：
+
+\begin{codeboxt}[cpp]{代码清单 12.1 聚合体类：若干示例（在 Compiler Explorer 上运行）}
+struct Base { int x {42}; };
+struct Derived : Base { int y; };
+struct Param {
+std::string name;
+int val;
+void Parse();
+// 允许有成员函数
+};
+int main() {
+Derived d {100, 1000};
+std::cout << "d.x " << d.x << ", d.y " << d.y << '\n';
+Derived d2 { 1 };
+std::cout << "d2.x " << d2.x << ", d2.y " << d2.y << '\n';
+Param p {"value", 10};
+std::cout << "p.name " << p.name << ", p.val " << p.val << '\n';
+double arr[] { 1.1, 2.2, 3.3, 4.4};
+std::cout << "arr[0] " << arr[0] << '\n';
+std::array floats { 10.1f, 20.2f, 30.3f };
+std::cout << "floats[0] " << floats[0] << '\n';
+std::array params {Param{"val", 10}, Param{"name", 42}};
+std::cout << "params[0].name " << params[0].name << '\n';
+}
+\end{codeboxt}
+
+在 C++20 中，在少数受限的情况下，你也可以使用圆括号 \texttt{X(args...)} 来初始化聚合体。下面是一个简短示例，展示了主要用法和限制：
+
+\begin{codeboxt}[cpp]{代码清单 12.2 C++20 中使用圆括号初始化（在 Compiler Explorer 上运行）}
+struct Point { int x; int y; };
+struct PointExt { Point pt; int z; };
+int main() {
+// C++20 与圆括号：
+Point pt (1, 2);
+// Point pt = (1, 2); // 不可行，语法错误
+Point pt1 = {1, 2}; // 用花括号没问题
+//Point pt2 { 1.1, 2.2 }; // 阻止窄化
+Point pt3 ( 1.1, 2.2 );
+// 窄化没问题
+PointExt pt4 { 4, 5, 6};
+// 花括号省略可行
+//PointExt pt5 ( (4, 5), 6); // 嵌套不可行
+// PointExt pt5 ( 4, 5, 6);
+// 花括号省略不可行
+PointExt pt5 ( Point(4, 5), 6); // 必须显式写
+double params[] (9.81, 3.14, 1.44);
+// double paramsDeduced[] = (9.81, 3.14, 1.44); // 语法错误
+int arrX[10]
+(1, 2, 3, 4); // 其余为 0
+}
+\end{codeboxt}
+
+以下是关于这种新初始化方式的一些基本规则：
+
+\begin{itemize}
+\item 你必须使用直接初始化 \texttt{(args...)}，而不是拷贝形式 \texttt{=(args...)}。在示例中，\texttt{Point pt = (1, 2);} 无法编译，而 \texttt{Point pt1 = \{1, 2\};} 可以正常工作。数组也遵循类似的规则。
+\item 另一方面，花括号 \texttt{\{\}} 会阻止窄化转换，但圆括号 \texttt{()} 允许窄化。在示例中，\texttt{pt3} 会用 \texttt{1} 和 \texttt{2} 来初始化，它们是从 \texttt{1.1} 和 \texttt{2.2} 这两个 \texttt{double} 值截断而来的。
+\item 使用花括号时，可以对嵌套类型省略花括号。圆括号无法做到这一点，你必须显式地写出子对象。
+\end{itemize}
+
+这一改进很有帮助，尤其是在泛型模板代码中，你可能想处理各种不同类型的对象。例如，下面这段代码在 C++20 之前是无法实现的：
+
+\begin{codeboxt}[cpp]{代码清单 12.2 聚合体与圆括号用于 make\_unique（在 Compiler Explorer 上运行）}
+struct Point { int x; int y; };
+int main() {
+auto ptr = std::make_unique<Point>(10, 20);
+}
+\end{codeboxt}
+
+\texttt{make\_unique} 接受可变数量的实参，并把它们传给构造函数。这个函数使用圆括号来调用构造函数。由于我们的聚合体没有用户声明的构造函数，所以这种语法会产生错误。借助 C++20 的这一改动，这段代码现在可以正常工作了。
+
+我们还可以再看一个在 C++20 中能够编译、但以前会失败的例子：
+
+\begin{codeboxt}[cpp]{代码清单 13.3 聚合体与圆括号用于 emplace\_（在 Compiler Explorer 上运行）}
+struct Point { int x; int y; };
+int main() {
+std::vector<Point> points;
+points.emplace_back(10, 20);
+}
+\end{codeboxt}
+
+\texttt{emplace\_back()} 函数接受实参，并在向量的末尾创建一个 \texttt{Point} 对象。这是 \texttt{push\_back} 的替代方案，后者需要传入一个已经创建好的对象，然后会把该对象的一份拷贝放到容器末尾。\texttt{emplace\_back} 使用 \texttt{()} 来创建对象，而在 C++20 之前，聚合体在使用这个函数时会遇到问题。
+
+如果你想了解更多，我强烈推荐阅读 Arthur O'Dwyer 的《C++20's parenthesized aggregate initialization has some downsides》\footnote{\url{https://quuxplusone.github.io/blog/2022/06/03/aggregate-parens-init-considered-kinda-bad/}}，其中讨论了这种新初始化语法的优缺点。此外，还可以看看 Timur Doumler 在 ACCU 2022 上的简短闪电演讲：Lightning Talk - Direct Aggregate Initialisation\footnote{\url{https://www.youtube.com/watch?v=1_2e8r4zXJg}}。
+
+\section{指定初始化器基础}
+
+C++20 标准还为我们提供了另一种便捷的数据成员初始化方式。这个新特性叫做指定初始化器（designated initializers），C 程序员可能对它并不陌生。
+
+从 C++20 起，要初始化一个聚合体对象，可以这样写：
+
+\begin{codebox}[cpp]
+Type obj = { .designator = val, .designator { val2 }, ... };
+\end{codebox}
+
+例如：
+
+\begin{codebox}[cpp]
+struct Point { double x; double y; };
+Point p { .x = 10.0, .y = 20.0 };
+\end{codebox}
+
+指示符（designator）指向我们类中某个非静态数据成员的名字，例如 \texttt{.x} 或 \texttt{.y}。
+
+使用这种新初始化方式的主要理由之一是提高可读性。请比较下面几种初始化形式：
+
+\begin{codebox}[cpp]
+struct Date {
+int year;
+int month;
+int day;
+};
+// 新写法
+Date inFutureCpp20 { .year = 2050, .month = 4, .day = 10 };
+// 旧写法
+Date inFutureOld
+{ 2050, 4, 10 };
+\end{codebox}
+
+对于 \texttt{Date} 类而言，我们可能无法确定 day/month 还是 month/day 的顺序。使用指定初始化器（\texttt{inFutureCpp20}）后，数据成员的顺序一目了然。
+
+\section{规则}
+
+以下规则适用于指定初始化器：
+
+\begin{itemize}
+\item 指定初始化器只适用于聚合初始化，因此它们只支持聚合体类型；
+\item 指定初始化要求使用花括号 \texttt{\{\}}，不支持 C++20 的圆括号 \texttt{()} 初始化；
+\item 指示符只能引用非静态数据成员；
+\item 初始化表达式中的指示符顺序必须与类声明中数据成员的顺序一致——这一点与 C 语言不同，在 C 语言中你可以按任意顺序放置指示符；
+\item 并非所有数据成员都必须在表达式中指定；
+\item 不能把常规初始化与指示符混用；
+\item 一个数据成员只能有一个指示符；
+\item 不能嵌套指示符。
+\end{itemize}
+
+下面这个简单示例展示了指定初始化器的主要错误用法：
+
+\begin{codebox}[cpp]
+struct Date {
+int year;
+int month;
+int day;
+static int mode;
+};
+Date d { .mode = 10 };
+// 错误，mode 是 static！
+Date d { .day = 1, .year = 2010 }; // 错误，顺序不对！
+Date d { 2050, .month = 12 };
+// 错误，混用！
+\end{codebox}
+
+上面的代码展示了几种指定初始化器无法工作的情况：\texttt{static} 数据成员、乱序初始化，或者混用。在所有情况下，编译器都会报错。
+
+\section{指定初始化的优点}
+
+\begin{itemize}
+\item 可读性：指示符指向具体的数据成员，因此这里不可能出错。
+\item 灵活性：可以跳过某些数据成员，对其他的则依赖默认值。
+\item 与 C 的兼容性：在 C99 中，使用类似的初始化形式很常见（尽管更加宽松）。借助 C++20 的这一特性，就可以写出非常相似的代码并共享它们。
+\item 标准化：一些编译器（如 GCC 或 Clang）早已为该特性提供了扩展，因此把它在所有编译器中启用是顺理成章的一步。
+\end{itemize}
+
+\section{示例}
+
+我们来看一些示例：
+
+\begin{codeboxt}[cpp]{代码清单 12.4 指定初始化器演示（在 Compiler Explorer 上运行）}
+#include <iostream>
+#include <string>
+struct Product {
+std::string name_;
+bool inStock_ { false };
+double price_ = 0.0;
+};
+void Print(const Product& p) {
+std::cout << "name: " << p.name_ << ", in stock: "
+<< std::boolalpha << p.inStock_ << ", price: "
+<< p.price_ << '\n';
+}
+struct Time { int hour; int minute; };
+struct Date { Time t; int year; int month; int day; };
+int main() {
+Product p { .name_ = "box", .inStock_ {true }};
+Print(p);
+Date d { .t { .hour = 10, .minute = 35 },
+.year = 2050, .month = 5, .day = 10 };
+// 传给函数：
+Print({.name_ = "tv", .inStock_ {true }, .price_{100.0}});
+// 并非所有成员都被使用：
+Print({.name_ = "car", .price_{2000.0}});
+}
+\end{codeboxt}
+
+同样有趣的是，我们可以在一个指定初始化内部再使用指定初始化。例如：
+
+\begin{codebox}[cpp]
+struct Time { int hour; int min; };
+struct Date { Time t; int year; int month; int day; };
+Date d { .t { .hour = 10, .min = 6 }, .year = 2050, .month = 5, .day = 10 };
+\end{codebox}
+
+然而，我们不能使用这种「嵌套」写法，例如：
+
+\begin{codebox}[cpp]
+Date d { .t.hour = 10, .t.min = 35, .year = 2050, .month = 5, .day = 10 };
+\end{codebox}
+
+语法 \texttt{.t.hour} 无法工作。
+
+作为另一个演示，我们可以创建一个几乎类似 JSON 的结构\footnote{感谢 Mariusz Jaskółka 提供的灵感。}：
+
+\begin{codeboxt}[cpp]{代码清单 12.5 类似 JSON 的结构体初始化（在 Compiler Explorer 上运行）}
+#include <iostream>
+#include <string>
+#include <vector>
+struct Date { int year; int month; int day; };
+struct Team { std::string name; std::string where; };
+struct GameSession {
+std::string game;
+std::string localization;
+std::vector<Team> teams;
+Date date;
+};
+int main() {
+GameSession test {
+.game = "Pong",
+.localization = "Pacific Ocean",
+.teams
+= {
+Team {
+.name = "Johny Test",
+.where = "Arctica",
+},
+Team {
+.name = "Jane Doe",
+.where = "Antarctic",
+},
+},
+.date = {
+.year = 2022,
+.month = 10,
+.day = 6
+},
+};
+}
+\end{codeboxt}
+
+借助指定初始化器，我们可以创建大型对象，同时仍能以可读的形式赋值。上面演示中的这种 \texttt{GameSession} 在某些单元测试场景中可能会很方便。
+
+\section{小结}
+
+当一个简单类型由全是 public 的数据成员构成、且没有复杂的特殊成员函数时，C++ 允许你以简化的方式来创建它们。更重要的是，C++ 的演进让这项工作变得更加顺畅。例如，在 C++20 中，我们获得了指定初始化器，它通常能为聚合体类型的初始化带来更具可读性的方式。此外，C++20 扩展了普通圆括号 \texttt{()} 的初始化用途，因此「工厂」函数可以更容易地变得更通用，既能处理聚合体，也能处理复杂的类。

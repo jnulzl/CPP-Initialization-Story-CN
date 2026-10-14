@@ -1,0 +1,707 @@
+从 C++11 起，我们可以通过 \texttt{auto} 或 \texttt{decltype} 关键字进行自动类型推导（type deduction），从而编写更简短的代码。我们不必为新对象指定完整的类型，而是可以让编译器推导其类型。在本章中，我们将讨论“类型推导”如何影响初始化（initialization）。我们还将学习“AAA”规则 — Almost Always Auto（几乎总是用 auto）。
+
+\section{用 auto 进行推导}
+
+使用 \texttt{auto} 类型推导最显著的场景之一，是当你处理迭代器或其他“冗长”的类型时。在 C++11 之前，你必须指定迭代器的确切类型：
+
+\begin{codebox}[cpp]
+std::map<std::string, int> mapping { ... };
+std::map<std::string, int>::iterator it = mapping.find("hello");
+std::vector<std::pair<int, double>> pairs { ... };
+std::vector<std::pair<int, double>>::const_iterator startIT = pairs.cbegin();
+\end{codebox}
+
+从 C++11 起，你可以让编译器推导正确的类型：
+
+\begin{codebox}[cpp]
+auto it = mapping.find("hello");
+auto startIT = pairs.cbegin();
+\end{codebox}
+
+类型推导对于处理 map 的情况也是救星：
+
+\begin{codeboxt}[cpp]{代码清单 6.1 为 map 元素尝试正确的类型（在 Compiler Explorer 上运行）}
+map<string, int> m { {"hello", 1}, {"world", 2}};
+for (const pair<string, int>& elem : m)
+cout << elem.first << ", " << &elem.first << '\n';
+cout << m.begin()->first << ", " << &m.begin()->first << '\n';
+cout << next(m.begin())->first << ", " << &next(m.begin())->first << '\n';
+\end{codeboxt}
+
+你看到这里的问题了吗？如果运行程序，你会看到以下地址：
+
+\begin{codebox}[cpp]
+hello, 0x7ffe4eb027f0 // loop iteration 1
+world, 0x7ffe4eb027f0 // loop iteration 2
+hello, 0x15ae2d0
+world, 0x15ae320
+\end{codebox}
+
+看起来我们出现了不匹配！\texttt{std::pair<std::string, int>} 在遍历 \texttt{std::map} 时并不是正确的类型。正确的类型是 \texttt{std::pair<const std::string, int>}。换句话说，键必须是常量。由于类型不同，编译器必须为 \texttt{elem} 创建副本（它执行了一次隐式转换）！当你把循环行替换为：
+
+\begin{codebox}[cpp]
+for (const auto& elem : m)
+// 或者完整版本……
+for (const std::pair<const std::string, int>& elem : m)
+\end{codebox}
+
+代码会编译并产生精确的地址。例如：\texttt{hello, 0x1a7a2d0} 以及
+
+\begin{codebox}[cpp]
+hello, 0x1a7a2d0.
+\end{codebox}
+
+在某些情况下，我们甚至不知道类型。这发生在 lambda 上，编译器会创建一个唯一的、匿名的名字：
+
+\begin{codebox}[cpp]
+auto fooSquare = [](int x) { return x*x; }
+\end{codebox}
+
+没有办法知道上面这个 lambda 对象的确切类型\footnote{\url{https://accu.org/journals/overload/26/143/orr_2465/}}。
+
+现在让我们看看 \texttt{auto} 的核心原则。
+
+\section{auto 类型推导的规则}
+
+我们可以将 \texttt{auto} 的规则总结为以下五种情况的列表：
+
+1. 如果初始化器是一个常量表达式，则变量的类型被推导为表达式的类型：
+
+\begin{codebox}[cpp]
+auto num = 42;
+// num 是 int
+auto pi = 3.14;
+// pi 是 double
+// 字符串字面量和 nullptr 的特殊情况：
+auto str = "hello world";
+// str 是 const char*
+auto p = nullptr;
+// p 是 std::nullptr_t
+\end{codebox}
+
+2. 如果初始化器是一个非引用类型的表达式，则变量的类型被推导为表达式的类型，并去掉顶层 cv 限定符：
+
+\begin{codebox}[cpp]
+int num = 42;
+const int cnum = num;
+const int* pNum = &num;
+const int* const pCNum = &num;
+\end{codebox}
+
+使用直接初始化：
+
+\begin{codebox}[cpp]
+auto a { num };
+// a 是 int
+auto a2 { cnum };
+// a2 是 int，去掉了 const
+auto a3 { pNum };
+// a3 是 const int*
+auto a4 { pCNum };
+// a4 是 const int*，去掉了 const
+\end{codebox}
+
+当你使用拷贝初始化语法时，会发生相同的推导：
+
+\begin{codebox}[cpp]
+auto b = num;
+// b 是 int
+auto b2 = cnum;
+// b2 是 int，去掉了 const
+auto b3 = pNum;
+// b3 是 const int*
+auto b4 = pCnum;
+// b4 是 const int*，去掉了 const
+\end{codebox}
+
+3. 如果初始化器是一个引用类型的表达式，则变量的类型被推导为所引用对象的类型，并去掉顶层 cv 限定符和引用：
+
+\begin{codebox}[cpp]
+int num = 42;
+int& rnum = num;
+const int& crnum = num;
+auto c { num };
+// c 是 int
+auto c2 { rnum };
+// c2 是 int，去掉了引用
+auto c3 { crnum };
+// c3 是 int，去掉了 const 和引用
+auto d = num;
+// d 是 int
+auto d2 = rnum;
+// d2 是 int，去掉了引用
+auto d3 = crnum;
+// d3 是 int，去掉了 const 和引用
+\end{codebox}
+
+4. 如果初始化器是一个花括号初始化列表，则变量的类型被推导为适当类型的 \texttt{std::initializer\_list}：
+
+\begin{codebox}[cpp]
+auto list = { 1, 2, 3}; // list 是 std::initializer_list<int>
+auto one = { 1.1 };
+// one 是 std::initializer_list<double>
+\end{codebox}
+
+拷贝初始化语法产生的结果与直接初始化相同，但拷贝列表初始化会产生 \texttt{initializer\_list<T>}：
+
+\begin{codebox}[cpp]
+auto x { 42 };
+// x 是 int
+auto y = 42;
+// y 是 int
+auto z = { 42 };
+// z 是 initializer_list<int>！
+\end{codebox}
+
+5. 如果初始化器是一个 lambda 表达式，则变量的类型被推导为一个唯一的、未命名函数类型：
+
+\begin{codebox}[cpp]
+auto magic = [](){}; // magic 的类型是唯一的、未命名的函数类型
+\end{codebox}
+
+\section{添加类型说明符}
+
+你也可以添加引用、\texttt{const} 或指针签名来强制具体类型：
+
+\begin{codebox}[cpp]
+int num = 42;
+auto& ref = num;
+// ref 是 int&
+const auto& cref = num; // cref 是 const int&
+auto* pNum = &num;
+// pNum 是 int*
+\end{codebox}
+
+还有一个特殊的类型说明符 \texttt{auto\&\&}，它可以绑定到左值和右值，并保持 const 性：
+
+\begin{codebox}[cpp]
+std::string hello { "Hello" };
+std::string& refHello = hello;
+auto&& str = hello;
+// str 是 string&
+auto&& rstr = refHello;
+// rstr 是 string&
+const std::string world { "World" };
+const std::string& refWorld = world;
+auto&& w = world;
+// str 是 const string&
+auto&& rw = refWorld;
+// rstr 是 const string&
+\end{codebox}
+
+上面的例子展示了 \texttt{auto\&\&} 的基本用法（也称为通用引用或转发引用\footnote{关于通用引用，请参阅 Scott Meyers 的这篇精彩文章：\url{https://isocpp.org/blog/2012/11/universal-}}）。在 \texttt{str} 或 \texttt{rstr} 的情况下，推导出的类型是对 \texttt{std::string} 的引用。
+
+在初始化器是常量的情形下，得到的引用也会是 \texttt{const}；参见 \texttt{w} 和 \texttt{rw}。\texttt{auto\&\&} 还有一个有趣的特性，就是可以绑定到右值引用（“临时对象”）：
+
+\begin{codebox}[cpp]
+// auto& str2 = std::string { "HI" }; // 错误！只能绑定到左值！
+const auto& str3 = std::string { "HI"}; // 正确，但是 const 引用
+//str3[1] = 'i';
+// 错误，它是 const
+auto&& str4 = std::string { "HI" }; // 正确！str3 是 string&&
+str4[1] = 'i';
+// 可以修改
+\end{codebox}
+
+带有 \texttt{str2} 的那行会产生编译器错误，而另外两行没问题。主要区别在于 \texttt{str3} 是一个常量对象。\texttt{auto\&\&} 更灵活。它是基于范围的 for 循环的重要组成部分，这样它就能处理常量或非恒定的容器。
+
+\section{从另一个角度看推导}
+
+从概念上讲，当你写 \texttt{/*spec*/ auto x = expr;} 时，编译器使用的规则与模板类型推导相同：
+
+\begin{codebox}[cpp]
+template <typename T> x_func(/*spec*/ T param) { }
+x_func(/*expr*/);
+\end{codebox}
+
+在 Scott Meyers 的精彩著作《Effective Modern C++》的条款 2 中，我们可以读到以下三种情况：
+
+1. 类型说明符是指针或引用，但不是通用引用：
+
+\begin{codebox}[cpp]
+int num = 42;
+const auto& rx = num;
+// 与下面的推导相同：
+template <typename T> foo_rx(const T& num) { };
+foo_rx(num);
+\end{codebox}
+
+上面我们可以看到，推导 \texttt{rx} 类型的代码与把 \texttt{num} 传给 \texttt{foo\_rx} 的规则相同。
+
+2. 类型说明符是通用引用：
+
+\begin{codebox}[cpp]
+auto&& ux = 42;
+template <typename T> foo_ux(T&& num) { };
+foo_ux(42);
+\end{codebox}
+
+3. 类型说明符既不是指针也不是引用：
+
+\begin{codebox}[cpp]
+auto num = 42;
+template <typename T> foo_num(T num) { };
+foo_num(42);
+\end{codebox}
+
+让我们认识一下 C++11 的第二个关键字 \texttt{decltype}。
+
+\section{用 decltype 进行推导}
+
+\texttt{decltype} 关键字（C++11 加入）用于根据其声明来确定变量或表达式的类型。这意味着如果你对某个变量使用 \texttt{decltype}，它会返回该变量的类型，包括任何 \texttt{const} 或引用限定符。例如：
+
+\begin{codebox}[cpp]
+int x = 10;
+decltype(x) y = 20; // y 是 int
+const int z = 30;
+decltype(z) w = 40; // w 是 const int
+\end{codebox}
+
+\texttt{decltype} 和 \texttt{auto} 之间的一个关键区别是，\texttt{decltype} 总是返回变量或表达式的确切类型，而 \texttt{auto} 会去掉 \texttt{const} 和引用限定符。
+
+另一个区别是，\texttt{decltype} 可以用于表达式和变量，而 \texttt{auto} 只能用于初始化器。你可以用 \texttt{decltype} 来确定更复杂表达式的类型，例如函数调用或模板实参。
+
+简而言之，如果 \texttt{decltype} 的参数不是未加括号的变量或未加括号的类成员访问表达式，我们有三种情况：
+
+1. 如果表达式的值类别是 xvalue，则 \texttt{decltype} 产生 \texttt{T\&\&}，
+
+2. 如果表达式的值类别是 lvalue，则 \texttt{decltype} 产生 \texttt{T\&}，
+
+3. 如果表达式的值类别是 prvalue，则 \texttt{decltype} 产生 \texttt{T}。
+
+例如：
+
+\begin{codebox}[cpp]
+std::string name { "a funny name" };
+// decltype(name) 是 std::string
+// decltype((name)) 是 std::string&
+struct Object { int x; std::string n; };
+const Object obj { 0, "" };
+// decltype(obj) 是 const Object
+// decltype(obj.x) 是 int
+\end{codebox}
+
+\texttt{decltype} 一个方便的用例，是基于函数参数的类型来声明函数的正确返回类型：
+
+\begin{codebox}[cpp]
+auto calcString(const Object& obj) -> decltype(obj.parameter()) { ... }
+\end{codebox}
+
+在上面的行中，\texttt{decltype} 用于从 \texttt{Object} 类获取成员函数的返回类型。注意，在那个上下文中不可能使用 \texttt{auto}。
+
+\section{打印类型信息}
+
+借助一些额外的机制\footnote{使用了基于 \url{https://stackoverflow.com/questions/281818/unmangling-the-result-of-std-} 的 GCC \texttt{\_\_PRETTY\_FUNCTION\_\_}}，我们可以做一个实验并展示变量的类型：
+
+\begin{codeboxt}[cpp]{代码清单 6.2 打印类型信息（在 Compiler Explorer 上运行）}
+template <typename T>
+constexpr std::string_view typeName()
+{
+constexpr auto prefix = std::string_view{"with T = "};
+constexpr auto function = std::string_view{__PRETTY_FUNCTION__};
+const auto start = function.find(prefix) + prefix.size();
+return function.substr(start, function.find("; ") - start);
+}
+template <typename T, typename... Ts>
+void typeNames(const char*str ) {
+std::cout << str << typeName<T>();
+((std::cout << ", " << typeName<Ts>()), ...); // 折叠表达式，C++17
+}
+\end{codeboxt}
+
+代码使用了 \texttt{\_\_PRETTY\_FUNCTION\_\_} 这个编译期字符串。它在预定义的位置切片，以提取模板参数类型名。之后，这个函数被应用在 \texttt{typeNames()} 内部的可变参数包上，并通过 \texttt{std::cout} 打印名字。
+
+下面是一个例子：
+
+\begin{codeboxt}[cpp]{代码清单 6.2 打印类型信息，用例（在 Compiler Explorer 上运行）}
+int main() {
+int num = 42;
+int& rnum = num;
+const int& crnum = num;
+auto c { num };
+auto c2 { rnum };
+auto c3 { crnum };
+typeNames<decltype(c), decltype(c2), decltype(c3)>("c, c2, c3: ");
+auto x { 42 };
+// x 是 int
+auto y = 42;
+// y 是 int
+auto z = { 42 };
+// z 是 initializer_list<int>！
+typeNames<decltype(x), decltype(y), decltype(z)>("\nx, y, z: ");
+struct Object { std::string str; };
+const Object unknown { "unknown" };
+const Object& refunknown = unknown;
+auto&& u = unknown;
+auto&& refu = refunknown;
+typeNames<decltype(u), decltype(refu)>("\nu and refu: ");
+}
+\end{codeboxt}
+
+输出：
+
+\begin{codebox}[cpp]
+c, c2, c3: int, int, int
+x, y, z: int, int, std::initializer_list<int>
+u and refu: const main()::Object&, const main()::Object&
+\end{codebox}
+
+程序展示了三组 \texttt{auto} 用例的类型名。通过使用 \texttt{decltype}，我们可以精确地获取类型并保留它们的 const 性或引用状态。
+
+借助 \texttt{auto}，我们可以声明变量，而无需拼写出它们冗长的类型名。但在 C++17 中，我们还得到了另一个很酷的增强。让我们认识结构化绑定（structured binding）。
+
+\section{C++17 中的结构化绑定}
+
+从 C++17 开始，你可以写：
+
+\begin{codebox}[cpp]
+std::set<int> mySet;
+auto [iter, inserted] = mySet.insert(10);
+\end{codebox}
+
+\texttt{insert()} 返回一个 \texttt{std::pair}，指示元素是否被插入，以及指向该元素的迭代器。你可以使用具有具体名字的变量\footnote{你也可以通过使用 \texttt{std::tie()} 将结果赋给变量；不过，这种技术不如结构化绑定方便}，而不必使用 \texttt{pair.first} 和 \texttt{pair.second}。
+
+这种语法被称为结构化绑定表达式。
+
+\section{语法}
+
+结构化绑定的基本语法如下：
+
+\begin{codebox}[cpp]
+auto [a, b, c, ...] = expression;
+auto [a, b, c, ...] { expression };
+auto [a, b, c, ...] ( expression );
+\end{codebox}
+
+编译器把 \texttt{a}、\texttt{b}、\texttt{c}、\texttt{...} 列表中的所有标识符作为名字引入周围作用域，并将它们绑定到由 expression 所表示对象的子对象或元素上。
+
+\subsection{幕后，编译器可能会生成以下伪代码：}
+
+\begin{codebox}[cpp]
+auto tempTuple = expression;
+using a = tempTuple.first;
+using b = tempTuple.second;
+using c = tempTuple.third;
+\end{codebox}
+
+从概念上讲，表达式被复制到一个类似元组的对象（\texttt{tempTuple}）中，其成员变量通过 \texttt{a}、\texttt{b} 和 \texttt{c} 暴露出来。然而，变量 \texttt{a}、\texttt{b} 和 \texttt{c} 不是引用；它们是对所生成对象成员变量的别名（或绑定）。临时对象有一个由编译器分配的独特名字。
+
+例如：
+
+\begin{codebox}[cpp]
+std::pair a(0, 1.0f);
+auto [x, y] = a;
+\end{codebox}
+
+\texttt{x} 绑定到生成的、作为 \texttt{a} 副本的对象中存储的 \texttt{int}。类似地，\texttt{y} 绑定到 \texttt{float}。
+
+\subsection{修饰符}
+
+结构化绑定可以使用几个修饰符：
+
+\texttt{const} 修饰符：
+
+\begin{codebox}[cpp]
+const auto [a, b, c, ...] = expression;
+\end{codebox}
+
+引用：
+
+\begin{codebox}[cpp]
+auto& [a, b, c, ...] = expression;
+auto&& [a, b, c, ...] = expression;
+\end{codebox}
+
+例如：
+
+\begin{codebox}[cpp]
+std::pair a(0, 1.0f);
+auto& [x, y] = a;
+x = 10;
+// 写访问
+// a.first 现在为 10
+\end{codebox}
+
+在例子中，\texttt{x} 绑定到生成对象中的元素，而该元素是对 \texttt{a} 的引用。
+
+现在获取对 tuple 成员的引用也相对容易了：
+
+\begin{codebox}[cpp]
+auto& [ refA, refB, refC, refD ] = myTuple;
+\end{codebox}
+
+或者通过 \texttt{const} 引用更好：
+
+\begin{codebox}[cpp]
+const auto& [ refA, refB, refC, refD ] = myTuple;
+\end{codebox}
+
+你也可以给结构化绑定添加 \texttt{[[maybe\_unused]]}：
+
+\begin{codebox}[cpp]
+[[maybe_unused]] auto& [a, b, c, ...] = expression;
+\end{codebox}
+
+\section{绑定}
+
+结构化绑定不仅限于元组；我们可以从三种情况中进行绑定：
+
+1. 如果初始化器是一个数组：
+
+\begin{codebox}[cpp]
+// 适用于数组：
+double myArray[3] = { 1.0, 2.0, 3.0 };
+auto [a, b, c] = myArray;
+\end{codebox}
+
+在这种情况下，数组被复制到一个临时对象中，\texttt{a}、\texttt{b} 和 \texttt{c} 引用数组中复制出来的元素。
+
+标识符的数量必须与数组中的元素数量相匹配。
+
+2. 如果初始化器支持 \texttt{std::tuple\_size<>}，提供 \texttt{get<N>()} 并暴露
+
+\begin{codebox}[cpp]
+std::tuple_element functions:
+std::pair myPair(0, 1.0f);
+auto [a, b] = myPair; // 绑定 myPair.first/second
+\end{codebox}
+
+在上面的代码片段中，我们绑定到 \texttt{myPair}。但这也意味着你可以为你的类提供支持，前提是你添加了 \texttt{get<N>} 接口实现。详见后面一节中的例子。
+
+3. 如果初始化器的类型只包含非静态数据成员：
+
+\begin{codebox}[cpp]
+struct Point
+{ double x;
+double y; };
+Point GetStartPoint() { return { 0.0, 0.0 }; }
+const auto [x, y] = GetStartPoint();
+\end{codebox}
+
+\texttt{x} 和 \texttt{y} 引用 \texttt{Point} 结构中的 \texttt{Point::x} 和 \texttt{Point::y}。
+
+这个类不必是 \texttt{POD}，但标识符的数量必须等于非静态数据成员的数量。成员还必须能从给定上下文访问。
+
+\section{用结构化绑定写出更具表现力的代码}
+
+如果你有一个 \texttt{std::map} 元素，你可能知道它们内部是作为 \texttt{<const Key, ValueType>} 这样的对来存储的。
+
+现在，当你遍历该 map 的元素时：
+
+\begin{codebox}[cpp]
+for (const auto& elem : myMap) { ... }
+\end{codebox}
+
+你需要写 \texttt{elem.first} 和 \texttt{elem.second} 来引用键和值。结构化绑定最酷的用例之一，是我们可以把它用在基于范围的 for 循环中：
+
+\begin{codebox}[cpp]
+std::map<KeyType, ValueType> myMap;
+// C++14：
+for (const auto& elem : myMap) {
+// elem.first - 是键
+// elem.second - 是值
+}
+// C++17：
+for (const auto& [key,val] : myMap) {
+// 直接使用 key/value
+}
+\end{codebox}
+
+在上面的例子中，我们绑定到一对 \texttt{[key, val]}，这样我们就可以在循环中使用这些名字。在 C++17 之前，你不得不操作 map 返回的迭代器 — 它返回一个 \texttt{<first, second>} 对。使用真实的名字 \texttt{key/value} 更具表现力。
+
+上面的技术可以用在下面的例子中：
+
+\begin{codeboxt}[cpp]{代码清单 6.3 用结构化绑定遍历 map（在 Compiler Explorer 上运行）}
+#include <map>
+#include <iostream>
+int main() {
+const std::map<std::string, int> mapCityPopulation {
+{ "Beijing", 21'707'000 },
+{ "London", 8'787'892 },
+{ "New York", 8'622'698 }
+};
+for (const auto&[city, population] : mapCityPopulation)
+std::cout << city << ": " << population << '\n';
+}
+\end{codeboxt}
+
+在循环体中，你可以放心地使用 \texttt{city} 和 \texttt{population} 变量。
+
+\begin{myInfoBox}
+最初结构化绑定在 C++17 中有一些限制。例如，你不能把它们声明为 \texttt{static} 或 \texttt{constexpr}，也不能在 lambda 中捕获。这些问题在 C++20 中被移除，并回溯到了 C++17。主要思想是，“绑定”应该表现得像一个普通变量。
+\end{myInfoBox}
+
+
+\section{生命期延长、引用与循环}
+
+你可能还会在遍历 map 的例子中注意到另一个与 \texttt{auto} 相关的 Modern C++ 特性。那就是基于范围的 for 循环。它的语法严重依赖类型推导，因为它既可用于迭代过程中元素值的类型，也可用于获取正确的 \texttt{begin()} 和 \texttt{end()} 迭代器。简而言之：
+
+\begin{codebox}[cpp]
+for (range-declaration : range-expression) loop-statement
+\end{codebox}
+
+在 C++20 中，它展开为：
+
+\begin{codebox}[cpp]
+auto && __range = range-expression;
+auto __begin = begin-expr;
+auto __end = end-expr;
+for ( ; __begin != __end; ++__begin) {
+range-declaration = *__begin;
+loop-statement
+}
+\end{codebox}
+
+如你所见，\texttt{range-expression} 绑定到 \texttt{\_\_range}，并且由于它是右值引用，它可以支持 \texttt{const} 和非 \texttt{const} 的范围。此外，由于它是右值引用，它可以延长临时对象的生存期（life-time extension，这样临时对象会存活到引用消失为止）。
+
+我们可以对 \texttt{const} 引用观察到类似的行为：
+
+\begin{codebox}[cpp]
+void fooVec(const std::vector<int>& vec) { }
+void fooVecRR(std::vector<int>&& vec) {
+if (!vec.empty())
+vec[0] = 42;
+}
+fooVec({1, 2, 3});
+fooVecRR({1, 2, 3});
+\end{codebox}
+
+这一次我们可以将从初始化列表 \texttt{{1, 2, 3}} 创建的临时 \texttt{vector} 直接传给我们的两个函数。参见 Compiler Explorer\footnote{\url{https://godbolt.org/z/qEKoMe6aj}} 上的代码。
+
+另一方面，如果你尝试写：\texttt{void fooVec(vector<int>\& vec) \{ \}}，编译器会报告一个关于把 \texttt{vector<int>\&} 类型的非 const 左值引用绑定到 \texttt{std::vector<int>} 类型的右值的错误。
+
+\begin{codebox}[cpp]
+vector<int>& to an rvalue of type std::vector<int>.
+\end{codebox}
+
+回到循环，我们还必须考虑一个更复杂的情形：
+
+\begin{codeboxt}[cpp]{代码清单 6.4 循环与 C++20 中的 UB（在 Compiler Explorer 上运行）}
+auto getVec() {
+std::vector<std::vector<int>> ints { {1, 2}, {3, 4}, {5, 6} };
+return ints;
+}
+int main() {
+for (auto& i : getVec()[1])
+std::cout << i;
+}
+\end{codeboxt}
+
+这段代码从 C++20 起可以编译，但它是一个未定义行为（Undefined Behaviour）！它可能会崩溃、打印垃圾数据，甚至假装正常工作。
+
+造成这种情况的原因是，我们试图绑定：
+
+\begin{codebox}[cpp]
+auto && __range = getVec()[1];
+\end{codebox}
+
+但在上面的表达式中，我们有两个临时对象：一个来自 \texttt{getVec()} 的大 \texttt{vector}，以及它的 \texttt{[1]} 子“范围”。C++20 规则只延长了 \texttt{[1]} 的生存期，而当表达式以分号结束时，那个大 \texttt{vector} 就结束了它的生存期。
+
+为了得到更好的解决方案，你必须把“大 vector”存储在外部：
+
+\begin{codebox}[cpp]
+for (auto temp getVec(); auto& i : temp[1])
+std::cout << i;
+\end{codebox}
+
+\begin{myInfoBox}
+这一节特别强调 C++20 版本，因为在 C++23 中，基于范围的 for 循环在处理临时对象时会安全得多！简而言之，\texttt{range-expression} 部分中的所有临时对象都将延长其生存期。更多信息请参阅这些被接受的提案：P2644\footnote{\url{https://wg21.link/P2644}} 和 P2012\footnote{\url{https://wg21.link/P2012}}。
+\end{myInfoBox}
+
+
+\section{Almost Always Auto}
+
+AAA，即 Almost Always Auto（几乎总是用 auto），是一种编码风格指南，建议在 C++ 中使用 \texttt{auto} 关键字来声明变量。这条指南背后的理念是，使用 \texttt{auto} 可以减少需要编写和维护的样板类型信息量，从而使代码更易于阅读和维护。
+
+核心语法是：
+
+\begin{codebox}[cpp]
+auto x = initializer;
+// 包括调用函数
+auto y = type{ init }; // 强制指定类型
+\end{codebox}
+
+例如：
+
+\begin{codebox}[cpp]
+auto ptr
+= std::make_unique<Object>(/*...*/);
+auto ptrSh = std::make_shared<Widget>(/*...*/);
+std::string computeName(int num) { /* ... */ };
+auto str = computeName(42);
+auto intro
+= std::string { "Hello World" };
+auto elapsed
+= 42s;
+// chrono 字面量，秒
+auto strElapsed = "42"s;
+// std::string 字面量
+\end{codebox}
+
+理想情况下，你还可以加上 \texttt{const} 来表示对象不会改变：
+
+\begin{codebox}[cpp]
+const auto str
+= computeName(100);
+const auto factor = double { 10.1 };
+const auto arr
+= std::to_array({ 0, 2, 1, 3 });
+\end{codebox}
+
+这个术语由 Herb Sutter 在 GotW-94 文章\footnote{\url{https://herbsutter.com/2013/08/12/gotw-94-solution-aaa-style-almost-always-auto/}}、GotW 93\footnote{\url{https://herbsutter.com/2013/06/13/gotw-93-solution-auto-variables-part-2/}} 和 GotW 92 中推广：
+
+指南：请记住，优先使用 auto 变量主要是出于正确性、性能、可维护性、健壮性方面的动机 — 最后才是为了输入的便利。
+
+以下是使用 AAA 的一些主要好处：
+
+• 可读性提升：通过使用 \texttt{auto}，你可以减少代码中重复的类型信息量，使其更易于阅读和理解。
+
+• 降低维护开销：使用 \texttt{auto}，当变量类型发生变化时你无需更新它，因为类型会从初始化器自动推导出来。这可以节省时间并降低出错风险。
+
+• 更好的类型安全性：C++ 中 \texttt{auto} 类型推导的规则旨在确保用 \texttt{auto} 声明的变量类型正确且与初始化器一致。这可以帮助防止常见错误，例如把错误类型的值赋给变量，以及隐式转换。
+
+• 确保初始化：你不能让一个 \texttt{auto} 变量处于未初始化状态。
+
+这个术语使用了“几乎”，所以以下是一些不能使用这种语法的情况：
+
+\begin{codebox}[cpp]
+// 当类型由两个或更多名字组成时：
+auto number = long long { 100 }; // 语法错误！
+// 非静态数据成员初始化
+struct X {
+auto val = int { 10 }; // 语法错误
+}
+\end{codebox}
+
+此外，在 C++17 之前，你不能初始化像 \texttt{std::mutex} 这样的东西：
+
+\begin{codebox}[cpp]
+auto m = std::mutex{};
+\end{codebox}
+
+由于 \texttt{mutex} 不是可移动类型，你无法使用拷贝初始化。但这个限制在 C++17 的强制拷贝消除（mandatory copy elision）中被解除。
+
+虽然 AAA 风格有一些好处，但也存在一些抱怨：
+
+• 在 C++ 中使用自动风格的一个潜在缺点是，它可能使代码可读性变差，特别是对于不熟悉所使用特定风格的开发者。\texttt{auto x = 42} 可能比简单的 \texttt{int x = 42} 更难读。
+
+• 并非所有开发者都了解自动类型推导的规则，因此他们可能引入一些错误或低效。例如 \texttt{for (auto x : cont)}。代码很短，但它会为容器中的每个元素创建一个副本。正确的形式应该使用 \texttt{auto\& x} 甚至 \texttt{auto\&\& x}。
+
+• 类似地，把 \texttt{auto} 赋给 \texttt{obj.getter\_with\_reference()}，当 \texttt{getter\_with\_reference} 返回对某个内部数据的引用时，可能会带来额外的副本。在这种情况下，必须使用 \texttt{auto\& x}。
+
+• 当某个函数的返回类型发生剧烈变化时：例如从值类型变为引用，这可能会在只使用 \texttt{auto val = func()} 的代码中引入一些不想要的影响。
+
+\section{总结}
+
+本章带来了定义新变量时的几个有趣技巧。借助 \texttt{auto} 或 \texttt{decltype}，你可以让编译器从表达式或初始化器推导类型。当类型具有冗长或复杂的名字（例如迭代器）时，或者当类型未知（如闭包 / lambda 对象的类型）时，这会很有帮助。\texttt{auto} 的工作方式类似于模板类型推导。因此，它会从初始化器中出现的类型上去除 const 性和引用。另一方面，\texttt{decltype} 可以基于其他变量和表达式（包括它们的值类别）创建精确的类型。虽然 \texttt{auto} 和 \texttt{decltype} 是在 C++11 中加入的，但在 C++17 中，我们得到了一个漂亮的“扩展”，称为结构化绑定。绑定可以解包对、元组、数组和简单结构，从而得到更简洁的语法和更具表现力的代码。
+
+\begin{myInfoBox}
+从 C++17 起，你还可以依赖类模板实参推导（CTAD，Class Type Argument Deduction）。这个特性允许你写 \texttt{std::vector nums { 1, 2, 3}} 并为类模板推导出合适的模板参数。不过，这个主题超出了本书范围，不会涵盖。你可以在诸如《C++ Templates: The Complete Guide（第 2 版）》这样的书，或文章：Class template argument deduction (CTAD) C++ reference 和 CTAD – What Is This New Acronym All About? @ACCU 中阅读更多内容。
+\end{myInfoBox}
+
+
+在一节中，我们还看了 AAA，即 Almost Always Auto — 一种用 \texttt{auto} 开头声明所有变量的约定。我们看了这种方法的好处，也包括一些注意事项。
+
+在章末，我想引用 Google C++ Style Guide 关于类型推导的一句话\footnote{\url{https://google.github.io/styleguide/cppguide.html\#Type_deduction}}：
+
+基本规则是：仅在你能让代码更清晰或更安全时使用类型推导，不要仅仅为了避免写显式类型的不便而使用它。在判断代码是否更清晰时，请记住你的读者不一定在你的团队中，也不一定熟悉你的项目，所以你和你的审阅者觉得不必要的那些类型，往往能给别人提供有用的信息。例如，你可以假设 \texttt{make\_unique<Foo>()} 的返回类型很明显，但 \texttt{MyWidgetFactory()} 的返回类型可能不是。

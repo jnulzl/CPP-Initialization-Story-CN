@@ -1,0 +1,1000 @@
+在整本书中，我们已经触及了许多不同的主题，有时只是停留在理论层面。不过在本章中，我把其中许多特性整理到一起，并通过几个实际用例展示了它们的价值。
+
+你将了解到以下方面：
+
+\begin{itemize}
+\item 强类型（strong type）与 \texttt{explicit} 关键字，
+\item 初始化 string 数据成员，
+\item 通过 \texttt{emplace} 或 \texttt{in\_place} 减少额外的拷贝，
+\item 拷贝并交换惯用法（copy and swap idiom），它可以作为一种简化拷贝与移动操作的潜在手段，
+\item CRTP，
+\item Meyer 单例（Meyers' Singleton）
+\item 带自注册类型（self-registering types）的工厂（factory）。
+\end{itemize}
+
+让我们开始吧。
+
+\section{用 explicit 实现强类型}
+
+如果你还记得第 1 章，我在 \texttt{CarInfo} 结构里用 \texttt{double} 来表示马力（horsepower，hp）。然而，我们很快就会遇到一个问题：忘记单位，转而把它当作瓦特（Watt）来处理。我们能限制这类有问题的情形吗？
+
+答案是肯定的，核心思路是把数据成员 \texttt{double power} 包装进一个单独的、带有 \texttt{explicit} 构造函数的类类型中。这样就更难误用它，这种做法被称为强类型（Strong Typing）。
+
+来看两个相似的包装类型：
+
+\begin{codeboxt}[cpp]{代码清单 13.1 强类型与面积单位类。在 Compiler Explorer 上运行}
+constexpr double ToWattsRatio { 745.699872 };
+class HorsePower;
+class WattPower {
+public:
+WattPower() = default;
+explicit WattPower(double p) : power_{p} { }
+explicit WattPower(const HorsePower& h);
+double getValue() const { return power_; }
+private:
+double power_ {0.};
+};
+class HorsePower {
+public:
+HorsePower() = default;
+explicit HorsePower(double p) : power_{p} { }
+explicit HorsePower(const WattPower& w);
+double getValue() const { return power_; }
+private:
+double power_ {0.};
+};
+\end{codeboxt}
+
+如你所见，我们有两个类型，它们都用 \texttt{explicit} 构造函数来初始化各自的私有数据成员。要创建对象，你必须显式写出正确的类型名，因此这应当能降低出错的概率。
+
+下面是转换构造函数以及用于方便输出的流运算符的实现：
+
+\begin{codeboxt}[cpp]{代码清单 13.2 强类型与面积单位：实现。在 Compiler Explorer 上运行}
+constexpr double ToWattsRatio { 745.699872 };
+class HorsePower;
+class WattPower { /* 同前 */ };
+class HorsePower { /* 同前 */ };
+WattPower::WattPower(const HorsePower& h)
+: power_{h.getValue()*ToWattsRatio} { }
+HorsePower::HorsePower(const WattPower& w)
+: power_{w.getValue()/ToWattsRatio} { }
+std::ostream& operator<<(std::ostream& os, const WattPower& w) {
+os << w.getValue() << "W";
+return os;
+}
+std::ostream& operator<<(std::ostream& os, const HorsePower& h) {
+os << h.getValue() << "hp";
+return os;
+}
+\end{codeboxt}
+
+这套接口允许我们在各种单位之间安全地转换。
+
+\begin{codebox}[cpp]
+//HorsePower hp = 10.; // 不行，这是拷贝初始化
+HorsePower hp{ 10. }; // 可以
+WattPower w { 1. }; // 可以
+WattPower watts { hp }; // 可以，为我们执行了正确的转换！
+\end{codebox}
+
+此外，我们还提供了输出支持，会写出正确的单位名称。
+
+现在可以使用这个方案了：
+
+\begin{codebox}[cpp]
+void printInfo(const CarInfo& c) {
+std::cout << c.name << ", "
+<< c.year << " year, "
+<< c.seats << " seats, "
+<< c.power << '\n';
+}
+int main() {
+CarInfo firstCar{"Megane", 2003, 5, HorsePower{116}};
+printInfo(firstCar);
+CarInfo superCar{"Ferrari", 2022, 2, HorsePower{300}};
+printInfo(superCar);
+superCar.power = HorsePower{WattPower{500000}};
+printInfo(superCar);
+}
+\end{codebox}
+
+我们会得到如下输出：
+
+\begin{codebox}[cpp]
+Megane, 2003 year, 5 seats, 116hp
+Ferrari, 2022 year, 2 seats, 300hp
+Ferrari, 2022 year, 2 seats, 670.511hp
+\end{codebox}
+
+虽然我不得不更显式地写出类型，但由于更不容易误输入，代码也可能更安全。
+
+\begin{myInfoBox}
+在 C++11 中，你还可以借助用户定义字面量（user-defined literal）来更轻松地创建对象。它对于单位、字符串、数值类型、时间和日期尤其有用。例如，我们可以创建一个具名字面量 \texttt{\_m2}，然后写 \texttt{50.0\_m2} 来创建实例，而不必写 \texttt{SqMeters\{50.2\}}。更多内容参见 C++Reference 的 User-defined literals\footnote{\url{https://timsong-cpp.github.io/cppwp/basic.stc.static\#2}}。
+\end{myInfoBox}
+
+\begin{myInfoBox}
+关于强类型的更多信息，我强烈推荐阅读 Fluent C++ 博客上的许多文章。例如，可以从这篇开始：Strong types for strong interfaces - Fluent C++\footnote{\url{https://www.fluentcpp.com/2016/12/08/strong-types-for-strong-interfaces/}}。
+\end{myInfoBox}
+
+
+\section{初始化 string 数据成员的最佳方式}
+
+看下面的例子：
+
+\begin{codebox}[cpp]
+class UserName {
+std::string name_;
+public:
+explicit UserName(const std::string& str) : name_(str) { }
+};
+\end{codebox}
+
+如你所见，构造函数接受的是 \texttt{const std::string\& str}。
+
+让我们在三种情形下比较这些可选的实现：从字符串字面量创建、从左值（lvalue）创建，以及从右值（rvalue）引用创建：
+
+\begin{codebox}[cpp]
+// 从字符串字面量创建
+UserName u1{"John With Very Long Name"};
+// 从左值创建：
+std::string s2 {"Marc With Very Long Name"};
+UserName u2 { s2 };
+// 稍后使用 s2...
+// 从右值引用创建
+std::string s3 {"Marc With Very Long Name"};
+UserName u3 { std::move(s3) };
+// 第三种情形也类似于接收一个返回值：
+std::string GetString() { return "some string..."; }
+UserName u4 { GetString() };
+\end{codebox}
+
+请注意，这里没有把 \texttt{s2} 和 \texttt{s3} 的分配/创建计入；我们只看构造函数调用时发生了什么。对于 \texttt{s2}，我们还可以假设它在代码稍后还会被使用。
+
+\textbf{对于 \texttt{const std::string\&}：}
+
+\begin{itemize}
+\item \texttt{u1} —— 两次分配：第一次创建一个临时 string 并把它绑定到输入参数上，随后又拷贝进 \texttt{name\_}。
+\item \texttt{u2} —— 一次分配：我们对引用的绑定是零开销的，随后拷贝进成员变量。
+\item \texttt{u3} —— 一次分配：我们对引用的绑定是零开销的，随后拷贝进成员变量。
+\item 你不得不写一个接受右值引用的 \texttt{ctor}，才能为 \texttt{u1} 这种情形省掉一次分配；而且它还能为 \texttt{u3} 这种情形省掉一次拷贝（因为我们可以从右值引用移动）。
+\end{itemize}
+
+然而，自从 C++11 引入移动语义（move semantics）以来，把 \texttt{string} 按值传入、再从它移动，通常更好也更安全。
+
+例如：
+
+\begin{codebox}[cpp]
+class UserName {
+std::string name_;
+public:
+explicit UserName(std::string str) : name_(std::move(str)) { }
+};
+\end{codebox}
+
+现在我们得到如下结果：
+
+\textbf{对于 \texttt{std::string}：}
+
+\begin{itemize}
+\item \texttt{u1} —— 一次分配 —— 对应输入参数，然后一次移动进入 \texttt{name\_}。这比 \texttt{const std::string\&} 更好，那种情况下在该用例中有两次内存分配。
+\item \texttt{u2} —— 一次分配 —— 我们必须把值拷贝进参数，然后可以从它移动。
+\item \texttt{u3} —— 没有分配，只有两次移动操作 —— 这比 \texttt{const string\&} 更好！
+\end{itemize}
+
+当你按值传入 \texttt{std::string} 时，代码不仅更简单，而且也不必为右值引用单独编写重载。
+
+按值传入的做法与 Scott Meyers 所著《Effective Modern C++》中的准则 41 一致——“对于可拷贝、移动开销小且总是会被拷贝的参数，考虑按值传入”。
+
+然而，\texttt{std::string} 的移动开销小吗？
+
+尽管 C++ 标准并未规定这一点，但通常字符串都会用短字符串优化（Small String Optimisation，SSO）来实现——string 对象内部包含额外的空间，无需额外分配内存就能容纳字符\footnote{SSO 并未标准化，且容易发生变化。MSVC（VS 2013 及以上）/GCC（8.1 及以上）——缓冲区为 16 字节。}。这意味着移动一个 string 与拷贝它是一样的。而且由于字符串很短，拷贝也很快。
+
+让我们重新考虑字符串较短时按值传入的例子：
+
+\begin{codebox}[cpp]
+UserName u1{"John"}; // 能放进 SSO 缓冲区
+std::string s2 {"Marc"}; // 能放进 SSO 缓冲区
+UserName u2 { s2 };
+std::string s3 {"Marc"}; // 能放进 SSO 缓冲区
+UserName u3 { std::move(s3) };
+\end{codebox}
+
+请记住，对于短字符串，每次移动都与一次拷贝相同。
+
+\textbf{对于 \texttt{const std::string\&}：}
+
+\begin{itemize}
+\item \texttt{u1} —— 两次拷贝：一次把输入字符串字面量拷贝进临时的 string 参数，然后另一次拷贝进成员变量。
+\item \texttt{u2} —— 一次拷贝：已有的 string 被绑定到引用参数上，然后我们把它拷贝进成员变量。
+\item \texttt{u3} —— 一次拷贝：\texttt{rvalue} 引用零开销地绑定到输入参数上；随后我们把它拷贝进成员字段。
+\end{itemize}
+
+\textbf{对于 \texttt{std::string}：}
+
+\begin{itemize}
+\item \texttt{u1} —— 两次拷贝：输入参数由字符串字面量创建，然后有一次拷贝进入 \texttt{name\_}。
+\item \texttt{u2} —— 两次拷贝：一次拷贝进参数，然后第二次拷贝进成员。
+\item \texttt{u3} —— 两次拷贝：一次拷贝进参数（在这种特定情形下，移动就意味着拷贝），然后第二次拷贝进成员。
+\end{itemize}
+
+如你所见，当传入的是某个已存在的 string 时，按值传入短字符串可能会“更慢”，原因仅仅是你进行了两次拷贝而不是一次。另一方面，当编译器看到的是一对象而不是引用时，它可能把代码优化得更好。此外，短字符串拷贝开销很小，所以这种潜在的“变慢”甚至可能根本看不出来。
+
+总而言之，按值传入、然后再从 string 参数移动，是首选方案。这样代码简单，而对较长的字符串又有更好的性能。
+
+一如既往，如果你的代码需要极致性能，那就必须对所有可能的情形进行测量。
+
+\subsection{其他类型与自动化}
+
+\begin{myInfoBox}
+本节讨论的问题也可以推广到其他可拷贝、可移动的类型。如果移动操作开销小，那么按值传入可能比按引用传入更好。你还可以使用自动化工具，比如 Clang-Tidy，它可以检测出潜在的改进点。Clang-Tidy 为此用例专门提供了一条规则；参见 clang-tidy - modernize-pass-by-value\footnote{\url{https://clang.llvm.org/extra/clang-tidy/checks/modernize-pass-by-value.html}}。
+\end{myInfoBox}
+
+下面是字符串传参方式与 string 数据成员初始化的总结：
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+输入参数 & string（传值再移动） & const string\& \\
+\midrule
+const char* & 1 次分配 + 移动 & 2 次分配 \\
+const char* SSO & 2 次拷贝 & 2 次拷贝 \\
+lvalue & 1 次分配 + 1 次移动 & 1 次分配 \\
+lvalue SSO & 2 次拷贝 & 1 次拷贝 \\
+rvalue & 2 次移动 & 1 次分配 \\
+rvalue SSO & 2 次拷贝 & 1 次拷贝 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+这一部分只涵盖了使用 string 引用与 string 拷贝的基本做法。我们还可以进一步讨论 C++17 新增的 \texttt{std::string\_view}。如果你想看完整的对比，请参阅这篇博客文章 How to Initialize a String Member - C++ Stories\footnote{\url{https://www.cppstories.com/2018/08/init-string-member/}}。
+
+\section{通过 emplace 与 in\_place 减少额外的拷贝}
+
+自 C++11 起，程序员获得了一种“就地”初始化对象的新技术。这种做法避免了不必要的临时拷贝，并且适用于不可移动/不可拷贝的类型。
+
+
+举例来说，让我们看看 C++17 的 \texttt{std::optional} 和 \texttt{std::variant}，以及高效构造这些类型的方式。
+
+第一个词汇类型（vocabulary type）\texttt{std::optional} 是一个包装器，它带有一个额外特性，用来指示对象是否存在。创建 optional 对象的方式几乎与被包装的对象相同：
+
+\begin{codeboxt}[cpp]{代码清单 13.3 简化的 std::optional 示例。在 Compiler Explorer 上运行}
+#include <iostream>
+#include <optional>
+int main() {
+std::optional<double> empty;
+std::optional<std::string> ostr{"Hello World"};
+std::optional<int> oi{10};
+// has_value()
+if (empty.has_value()) std::cout << *empty << '\n';
+else std::cout << "empty is empty\n";
+// operator bool
+if (ostr) std::cout << *ostr << '\n';
+else std::cout << "ostr is empty\n";
+// value_or()
+std::cout << oi.value_or(42) << '\n';
+}
+\end{codeboxt}
+
+如你所见，无需像下面这样显式写出对象的类型：
+
+\begin{codebox}[cpp]
+std::optional<std::string> ostr{std::string{"Hello World"}};
+std::optional<int> oi{int{10}};
+\end{codebox}
+
+这是因为 \texttt{std::optional} 有一个接受 \texttt{U\&\&} 的构造函数（即对某个类型的右值引用，该类型可转换为 optional 中存储的类型）。在我们的例子里，它被识别为 \texttt{const char*}，而字符串可以由它来初始化。
+
+不过，让我们看看两种有趣的创建技巧，分别用 \texttt{std::in\_place\_t} 和 \texttt{emplace()}：
+
+我们至少有两点要关注：默认构造与高效构造。
+
+\subsection{默认构造}
+
+如果你有一个带默认构造函数的类，比如：
+
+\begin{codebox}[cpp]
+class UserName {
+public:
+UserName() : mName("Default") { }
+// ...
+private:
+std::string mName;
+};
+\end{codebox}
+
+你会如何创建一个包含 \texttt{UserName\{\}} 的 \texttt{std::optional} 对象？
+
+你可以这样写：
+
+\begin{codebox}[cpp]
+std::optional<UserName> u0;
+// 空的 optional
+std::optional<UserName> u1{}; // 也是空的！
+// 含默认构造对象的 optional：
+std::optional<UserName> u2{UserName{}};
+\end{codebox}
+
+这样能行，但它会创建一个额外的临时对象。运行上面的代码（事先加了一些日志输出）会得到如下输出：
+
+\begin{codebox}[cpp]
+UserName::UserName('Default')
+UserName::UserName(move 'Default')
+// 移动临时对象
+UserName::~UserName('')
+// 删除临时对象
+UserName::~UserName('Default')
+\end{codebox}
+
+这段代码创建了一个临时对象，然后把它移动进存储在 \texttt{std::optional} 中的对象。
+
+这里我们可以使用一个更高效的构造函数——借助 \texttt{std::in\_place\_t}：
+
+\begin{codebox}[cpp]
+std::optional<UserName> opt{std::in_place};
+\end{codebox}
+
+产生的输出为：
+
+\begin{codebox}[cpp]
+UserName::UserName('Default')
+UserName::~UserName('Default')
+\end{codebox}
+
+存储在 optional 中的对象是就地创建的，方式与你调用 \texttt{UserName\{\}} 相同。不需要额外的拷贝或移动。
+
+你可以在这里试用这些例子：Compiler Explorer\footnote{\url{https://godbolt.org/z/Kb9dP941h}}。
+
+\subsection{不可拷贝/不可移动的类型}
+
+正如你在上一节的例子中看到的，如果你用一个临时对象来初始化 \texttt{std::optional} 内部所含的值，那么编译器就不得不使用移动或拷贝构造。但如果你的类型不允许这样做呢？例如，\texttt{std::mutex} 既不可移动也不可拷贝。在这种情况下，\texttt{std::in\_place} 就是处理这类类型的唯一途径。
+
+\subsection{带多个参数的构造函数}
+
+另一个用例是：你的类型在构造函数中有更多参数。默认情况下，\texttt{optional} 只能处理单个参数（右值引用），并高效地把它传给被包装的类型。如果你想初始化 \texttt{std::complex(double, double)} 或 \texttt{std::vector} 呢？
+
+你当然可以创建一个临时拷贝，然后在构造时把它传进去：
+
+\begin{codebox}[cpp]
+// 含 4 个 1 的 vector：
+std::optional<std::vector<int>> opt{std::vector<int>{4, 1}};
+// complex 类型：
+std::optional<std::complex<double>> opt2{std::complex<double>{0, 1}};
+\end{codebox}
+
+或者使用 \texttt{in\_place} 以及那个能处理可变参数列表的构造函数版本：
+
+\begin{codebox}[cpp]
+template< class... Args >
+constexpr explicit optional( std::in_place_t, Args&&... args );
+// 或者 initializer_list：
+template< class U, class... Args >
+constexpr explicit optional( std::in_place_t,
+std::initializer_list<U> ilist,
+Args&&... args );
+std::optional<std::vector<int>> opt{std::in_place_t, 4, 1};
+std::optional<std::complex<double>> opt2{std::in_place_t, 0, 1};
+\end{codebox}
+
+第二种写法比较啰嗦，但它省去了临时对象的创建。临时对象——尤其对于容器或较大的对象——不如就地构造高效。
+
+\subsection{emplace() 成员函数}
+
+如果你想更改 optional 中存储的值，可以使用赋值运算符，或者调用 \texttt{emplace()}。
+
+沿用 C++11 引入的概念（容器的 emplace 方法），你可以高效地创建（并在需要时销毁旧值）一个新对象。
+
+\textbf{\texttt{std::make\_optional()}}
+
+如果你不喜欢 \texttt{std::in\_place}，那么可以看看 \texttt{make\_optional} 这个工厂函数。
+
+下面这段代码
+
+\begin{codebox}[cpp]
+auto opt = std::make_optional<UserName>();
+auto opt = std::make_optional<std::vector<int>>(4, 1);
+\end{codebox}
+
+与下面这些一样高效
+
+\begin{codebox}[cpp]
+std::optional<UserName> opt{std::in_place};
+std::optional<std::vector<int>> opt{std::in_place_t, 4, 1};
+\end{codebox}
+
+\texttt{make\_optional} 实现的是就地构造，等价于：
+
+\begin{codebox}[cpp]
+return std::optional<T>(std::in_place, std::forward<Args>(args)...);
+\end{codebox}
+
+\textbf{在 \texttt{std::variant} 中}
+
+\texttt{std::variant} 有两个可以使用的 \texttt{in\_place} 辅助工具：
+
+\begin{itemize}
+\item \texttt{std::in\_place\_type} —— 用于指定你想在 variant 中更改/设置哪一种类型
+\item \texttt{std::in\_place\_index} —— 用于指定你想更改/设置哪一个索引。
+\end{itemize}
+
+类型从 0 开始编号。例如，在 \texttt{std::variant<int, float, std::string>} 中：\texttt{int} 的索引是 \texttt{0}，\texttt{float} 的索引是 \texttt{1}，而 string 的索引是 \texttt{2}。这个索引与 \texttt{variant::index} 成员函数返回的值相同。
+
+幸运的是，你并不总是需要用这些辅助工具来创建 variant。它足够聪明，能识别出是否可以由传入的单个参数构造出来：
+
+\begin{codebox}[cpp]
+// 这会构造出第二个/float：
+std::variant<int, float, std::string> intFloatString { 10.5f };
+\end{codebox}
+
+对于 \texttt{std::variant}，至少在两种情形下我们需要这些辅助工具：
+
+\begin{itemize}
+\item 二义性（ambiguity）—— 当有多个类型都匹配时，用来区分应该创建哪一种类型
+\item 高效地创建复杂类型（与 optional 类似）
+\end{itemize}
+
+注意：默认情况下，variant 会用第一个类型来初始化——前提是该类型有默认构造函数。如果默认构造函数不可用，你会遇到编译错误。这与 \texttt{std::optional} 不同，后者会被初始化为一个空 optional——正如上一节所提到的。
+
+\subsection{二义性}
+
+如果你写成这样的初始化会怎样：
+
+\begin{codebox}[cpp]
+std::variant<int, float> intFloat { 10.5 }; // 从 double 转换？
+\end{codebox}
+
+值 \texttt{10.5} 可以转换为 \texttt{int} 或 \texttt{float}，因此编译器会报出好几页的模板错误……但本质上，它无法推导出 \texttt{double} 应该转换成哪种类型。
+
+但你可以通过指定想要创建的类型来轻松处理这种错误：
+
+\begin{codebox}[cpp]
+std::variant<int, float> intFloat { std::in_place_index<0>, 10.5 };
+// 或者
+std::variant<int, float> intFloat { std::in_place_type<int>, 10.5 };
+\end{codebox}
+
+\subsection{复杂类型}
+
+与 \texttt{std::optional} 类似，如果你想高效地创建需要多个构造函数参数的对象，就使用 \texttt{std::in\_place*}。例如：
+
+\begin{codebox}[cpp]
+// 传给 vector 的初始化列表
+std::variant<std::vector<int>, std::string> vecStr {
+std::in_place_index<0>, { 0, 1, 2, 3 }
+};
+\end{codebox}
+
+\section{拷贝并交换惯用法}
+
+第 2 章中 \texttt{DataPacket} 的实现包含两个版本的赋值运算符：
+
+\begin{codebox}[cpp]
+DataPacket& operator=(const DataPacket& other) { }
+DataPacket& operator=(DataPacket&& other) noexcept {}
+\end{codebox}
+
+这两个函数内部的代码存在一些重复，而且更重要的是，它并不完全安全。例如，如果我们修改了一个数据成员，而另一处修改抛出异常，那么我们的对象就会处于无效状态（部分赋值）。为了改进，我们可以尝试只写一个函数：
+
+\begin{codebox}[cpp]
+DataPacket& operator=(DataPacket other) noexcept {
+using std::swap;
+swap(data_, other.data_);
+swap(checkSum_, other.checkSum_);
+swap(serverId_, other.serverId_);
+std::cout << "Assignment for \"" << data_ << "\"\n";
+return *this;
+}
+\end{codebox}
+
+最引人注意的一点是，这个运算符按值接收 \texttt{DataPacket}。在运算符函数体执行之前，必须传入一个已完全初始化的 \texttt{DataPacket} 对象。换句话说，编译器会为此调用拷贝或移动构造函数。随后我们可以用 \texttt{swap} 来交换数据成员。我还写了 \texttt{using std::swap}，这样重载解析就能找到所有相关的 \texttt{swap} 函数，包括 \texttt{std} 命名空间中的那些。由于 \texttt{swap} 不会抛出异常（这类函数通常都标记为 \texttt{noexcept}），我们的赋值运算符是安全的，不会产生“部分赋值”/无效的对象。此外，由于实参中已经创建了一个对象，也就无需再与 \texttt{== this} 作比较。让我们调用这个新的赋值实现：
+
+\begin{codebox}[cpp]
+DataPacket another { ... };
+DataPacket newOne { ... };
+another = newOne;
+\end{codebox}
+
+在上面的用例中，编译器创建了 \texttt{newOne} 的一个拷贝，并把它作为赋值运算符中的 \texttt{another} 实参传入。
+
+另一方面，下面的例子中，会在把实参传给赋值运算符之前调用移动构造函数来创建 \texttt{other} 参数：
+
+\begin{codebox}[cpp]
+DataPacket another { ... };
+DataPacket newOne { ... };
+another = std::move(newCar);
+\end{codebox}
+
+你可以在此试用这个例子：Compiler Explorer\footnote{\url{https://godbolt.org/z/esoqY97cx}}。
+
+为了完整实现这一惯用法，我们可以添加一个 \texttt{DataPacket::swap} 函数，让它在拷贝构造函数和移动构造函数中复用。例如：
+
+\begin{codebox}[cpp]
+DataPacket(DataPacket&& other) noexcept
+: DataPacket() { // 确保数据已初始化
+swap(*this, other);
+std::cout << "Move ctor for \"" << data_ << "\"\n";
+}
+DataPacket& operator=(DataPacket other) noexcept {
+swap(*this, other);
+std::cout << "Assignment for \"" << data_ << "\"\n";
+return *this;
+}
+friend void swap(DataPacket& a, DataPacket& b) noexcept {
+using std::swap;
+swap(a.data_, b.data_);
+swap(a.checkSum_, b.checkSum_);
+swap(a.serverId_, b.serverId_);
+}
+\end{codebox}
+
+查看这个替代版本：Compiler Explorer\footnote{\url{https://godbolt.org/z/Me5189Wr8}}。
+
+移动构造函数这个版本只有在成员变量定义时就已正确初始化的情况下才有效（这就是我们必须调用默认构造函数，或使用另一章所述的非静态数据成员初始化器（NSDMI）的原因）。如果你在移动构造函数中使用 \texttt{swap}，而变量尚未初始化，那么 swap 就会与不确定值进行交换！
+
+关于这一惯用法的思路，在这个 Stack Overflow 问题中有热烈的讨论：c++ - What is the copy-and-swap idiom?\footnote{\url{https://stackoverflow.com/questions/3279543/what-is-the-copy-and-swap-idiom}}。
+
+\section{CRTP 类计数器}
+
+在关于 \texttt{inline} 变量的那一章中，有一个叫做“Instance Counter”的例子。它看起来是个很方便的类型，可以用来分别统计其他类型的实例数量。例如，我们可以从它继承来共享代码。遗憾的是，这种简单做法存在一个问题：
+
+\begin{codeboxt}[cpp]{代码清单 13.3 InstanceCounter 类型。在 Compiler Explorer 上运行}
+class InstanceCounter {
+static inline size_t counter_ { 0 };
+public:
+InstanceCounter() noexcept { ++counter_; }
+InstanceCounter(const InstanceCounter& ) noexcept { ++counter_; }
+InstanceCounter(InstanceCounter&& ) noexcept { ++counter_; }
+~InstanceCounter() noexcept { --counter_; }
+static size_t GetInstanceCounter() { return counter_; }
+};
+struct Value : InstanceCounter {
+int val { 0 };
+};
+struct Wrapper : InstanceCounter {
+double val { 0.0 };
+};
+int main() {
+Value v;
+Wrapper w;
+std::cout << "Values: " << Value::GetInstanceCounter() << '\n';
+std::cout << "Wrappers: " << Wrapper::GetInstanceCounter() << '\n';
+}
+\end{codeboxt}
+
+运行这段代码，你会看到如下输出：
+
+\begin{codebox}[cpp]
+Values: 2
+Wrappers: 2
+\end{codebox}
+
+主要问题在于，这两个类共享同一个基类，因此静态数据成员 \texttt{counter\_} 只有一份“副本”。我们希望分别统计对象，因此需要各自独立的计数器。要解决这个问题，我们可以使用一种叫做奇异递归模板模式（Curiously Recurring Template Pattern，CRTP）的技术。
+
+其核心思想是：让一个类从一个类模板派生，并把自身作为模板参数。
+
+\begin{codebox}[cpp]
+template<class Derived>
+class Base {};
+class X : public Base<X> {};
+\end{codebox}
+
+现在，每个派生类都会有 \texttt{Base} 类的一份独立“副本”，这至少带来两种可能：
+
+\begin{itemize}
+\item 为派生类添加通用功能，并改进它们的接口。
+\item 实现静态多态（static polymorphism）的一种方式。基类可以实现一个成员函数，让它访问 Derived 类并调用 Derived 的实现。
+\end{itemize}
+
+我们可以按如下方式实现计数器辅助类：
+
+\begin{codeboxt}[cpp]{代码清单 13.4 InstanceCounter 的 CRTP 版本。在 Compiler Explorer 上运行}
+template <typename Derived>
+class InstanceCounter {
+static inline size_t counter_ { 0 };
+public:
+InstanceCounter() noexcept { ++counter_; }
+InstanceCounter(const InstanceCounter& ) noexcept { ++counter_; }
+InstanceCounter(InstanceCounter&& ) noexcept { ++counter_; }
+~InstanceCounter() noexcept { --counter_; }
+static size_t GetInstanceCounter() { return counter_; }
+};
+struct Value : InstanceCounter<Value> {
+int val { 0 };
+};
+struct Wrapper : InstanceCounter<Wrapper> {
+double val { 0.0 };
+};
+int main() {
+Value v;
+Wrapper w;
+std::cout << "Values: " << Value::GetInstanceCounter() << '\n';
+std::cout << "Wrappers: " << Wrapper::GetInstanceCounter() << '\n';
+}
+\end{codeboxt}
+
+现在输出是：
+
+\begin{codebox}[cpp]
+Values: 1
+Wrappers: 1
+\end{codebox}
+
+如你所见，我们为 \texttt{InstanceCounter} 创建了两个不同的模板实例化：一个对应 \texttt{Value}，另一个对应 \texttt{Wrapper}。现在计数器彼此独立，并显示出预期值。
+
+\begin{myInfoBox}
+关于这个方便的技术，可在 C++Reference 的 Curiously Recurring Template Pattern 条目\footnote{C++Reference 中关于 CRTP 的条目。}中了解更多，也可以阅读 Fluent C++ 博客上的三篇系列文章：The Curiously Recurring Template Pattern (CRTP), part 1\footnote{Fluent C++ 博客上的 CRTP 三部曲系列文章。}。
+\end{myInfoBox}
+
+\section{一个类中的多种初始化方式}
+
+作为各种初始化技术的演示，我想展示一段创建 N 个随机“应用窗口”的代码。
+
+这个演示的要点如下：
+
+\begin{itemize}
+\item 一个 \texttt{Window} 类包含一些基本参数，如名称（显示在标题栏上）、宽度、高度，以及一些标志（每像素位数、可见性）。
+\item 演示会随机选择一个数 X，并尝试生成 X 个 \texttt{Window} 对象。
+\item 每个对象都有一个由预定义单词组成的随机名称，以及随机的大小。
+\item 应用程序用 \texttt{std::cout} 打印每个窗口。
+\item 作为额外的校验，一个 \texttt{InstanceCounter} 类统计 \texttt{Window} 对象的数量。我们可以用这个辅助类来验证演示的正确性。
+\end{itemize}
+
+下面是定义 \texttt{Flags} 对象的第一部分：
+
+
+\begin{codeboxt}[cpp]{代码清单 13.5 Flags 类型。在 Compiler Explorer 上运行}
+struct Flags {
+unsigned bppMode_ : 4 { 0 }; // 每像素位数
+unsigned visible_ : 1 { 1 };
+unsigned extData
+: 2 { 0 };
+};
+\end{codeboxt}
+
+下面是主类：
+
+\begin{codeboxt}[cpp]{代码清单 13.5 Window 类型。在 Compiler Explorer 上运行}
+class Window : public InstanceCounter<Window> {
+static constexpr unsigned default_width { 1028 };
+static constexpr unsigned default_height { 768 };
+static constexpr unsigned default_bpp { 8 };
+unsigned width_ { default_width };
+unsigned height_ { default_height };
+Flags flags_ {.bppMode_ { default_bpp } };
+std::string title_ { "Default Window" };
+public:
+Window() = default;
+explicit Window(std::string title) : title_(std::move(title)) { }
+Window(std::string title, unsigned w, unsigned h) :
+width_(w), height_(h), title_(std::move(title)) {}
+friend std::ostream& operator<<(std::ostream& os, const Window& w) {
+os << w.title_ << ": " << w.width_ << "x" << w.height_;
+return os;
+}
+};
+\end{codeboxt}
+
+\texttt{Window} 类用到了本书讨论过的若干特性：
+
+\begin{itemize}
+\item 用 NSDMI 初始化数据成员，
+\item 来自 C++20 的指定初始化器（designated initializer），并与 NSDMI 结合用于 \texttt{flags\_} 数据成员，
+\item 自定义构造函数，提供多种初始化数据成员的方式，
+\item 我们从 \texttt{InstanceCounter} 继承，因此每次为 \texttt{Window} 调用构造函数时，也会在 \texttt{InstanceCounter} 中调用相应的构造函数。类似地，\texttt{InstanceCounter} 的析构函数会由 \texttt{Window} 类隐式的默认析构函数很好地调用。
+\end{itemize}
+
+现在是最终的演示代码：
+
+\begin{codeboxt}[cpp]{代码清单 13.5 Window 类型。在 Compiler Explorer 上运行}
+void WindowDemo() {
+std::random_device rd;
+std::mt19937 gen(rd());
+std::uniform_int_distribution<> distrib(0, 20);
+const int windowCount = std::uniform_int_distribution<>(2, 10)(gen);
+std::cout << "Generating " << windowCount << " random Windows\n";
+const std::array adjs { "regular ", "empty ", "blue ", "super " };
+const std::array nouns { "app", "tool", "console", "game" };
+const std::array sizes { 1080u, 1920u, 768u, 320u, 640u, 3840u, 800u };
+std::vector<Window> windows;
+for (int i = 0; i < windowCount; ++i) {
+auto r = distrib(gen);
+auto r2 = distrib(gen);
+auto name = std::string { adjs[(r + i) % adjs.size()] } +
+nouns[r2 % nouns.size()];
+Window w{name, sizes[r2 % sizes.size()],
+sizes[r % sizes.size()]};
+windows.push_back(w);
+}
+for (const auto& w : windows)
+std::cout << w << '\n';
+std::cout << "Created " << Window::GetInstanceCounter() << " Windows\n";
+}
+int main() {
+WindowDemo();
+if (Window::GetInstanceCounter() != 0) {
+std::cout << Window::GetInstanceCounter()
+<< " Windows are still alive!\n";
+}
+}
+\end{codeboxt}
+
+可能的输出如下：
+
+\begin{codebox}[cpp]
+Generating 8 random Windows
+super tool: 320x320
+regular tool: 320x640
+super game: 1080x768
+super game: 640x1080
+regular tool: 1920x3840
+empty tool: 1920x3840
+blue game: 320x768
+empty console: 320x320
+Created 8 Windows
+\end{codebox}
+
+在 \texttt{WindowDemo} 中，代码声明了一些基本数据并生成一个随机数。随后在主循环里，我们生成随机数，用来从 \texttt{adjs}、\texttt{nouns} 和 \texttt{sizes} 数组中挑选值。数据准备好后，我就可以创建一个 \texttt{Window} 对象并把它放进 \texttt{std::vector}。
+
+为了展示 \texttt{Window} 对象的创建，我在 vector 上用了 \texttt{push\_back}，但我们可以优化它，改用 \texttt{emplace\_back}，后者不需要临时对象：
+
+\begin{codebox}[cpp]
+windows.emplace_back(name, sizes[r2 % sizes.size()], sizes[r % sizes.size()]);
+\end{codebox}
+
+后面还有另一个循环，用来打印所有窗口。
+
+\begin{myInfoBox}
+在代码中，我不必为 \texttt{std::array<Type, Count>} 写出完整类型，因为编译器能替我推导出一切！多亏了 C++17 的类模板实参推导（Class Template Argument Deduction，CTAD）和推导指引（deduction guide），编译器可以帮我们省去一些打字。更多内容参见 C++Reference - deduction guides for array\footnote{C++Reference 上关于 \texttt{std::array} 推导指引（deduction guides）的文档。}。
+\end{myInfoBox}
+
+
+代码把 \texttt{InstanceCounter} 用作一个额外的调试手段，用来确保活动对象的数量正确。当 \texttt{WindowDemo()} 结束时，所有实例都应被移除，我们可以在 \texttt{main()} 中复核这一点。
+
+\section{Meyer 单例与 C++11}
+
+Meyer 单例（Meyers' Singleton）是 C++ 中的一种设计模式，用来确保一个类只有一个实例，并提供访问该实例的全局入口。该模式以 Scott Meyer 命名，他在《Effective C++: 55 Specific Ways to Improve Your Programs and Designs》一书中描述了它。
+
+要在 C++ 中实现 Meyer 单例，你可以定义一个带有私有默认构造函数、私有拷贝构造函数和私有赋值运算符的类。然后提供一个公有的 \texttt{static} 函数，返回对该类单一实例的引用。
+
+该函数第一次被调用时，会创建该类的一个新实例并返回对它的引用。之后的调用则返回对同一个实例的引用。
+
+下面是一个在 C++ 中实现 Meyer 单例的示例：
+
+\begin{codeboxt}[cpp]{代码清单 13.6 Mayer 单例。在 Compiler Explorer 上运行}
+class Singleton {
+private:
+Singleton() = default;
+Singleton(const Singleton&) = delete;
+Singleton& operator=(const Singleton&) = delete;
+public:
+static Singleton& getInstance() {
+static Singleton instance;
+return instance;
+}
+void foo() { ... }
+};
+// 用法
+Singleton::getInstance().foo();
+\end{codeboxt}
+
+Meyer 单例常被用来确保一个类只有一个实例，并提供访问该实例的全局入口。在 C++11 及以后的版本中，可以在函数内用 \texttt{static} 关键字声明一个局部 \texttt{static} 变量。这让你能够定义一个只初始化一次的局部变量，而且是线程安全的。
+
+\begin{myWarnBox}
+虽然 Meyer 单例是实现这一设计模式非常高效的方式，但在现代编程风格中，单例的声誉并不好。单例实际上是一个全局对象，它会带来一些问题，比如测试、可扩展性、缺乏显式依赖等等。在你的代码中加入这一模式时请务必谨慎。
+\end{myWarnBox}
+
+\section{带自注册类型与静态初始化的工厂}
+
+可运行的代码在这里：\url{https://wandbox.org/permlink/iQbNnOUBu0R8Vk8u}，使用了 constinit！
+
+下面来看一个典型的工厂函数。它根据文件名的扩展名创建 \texttt{ZipCompression} 或 \texttt{BZCompression}。
+
+\begin{codebox}[cpp]
+static unique_ptr<ICompressionMethod> Create(const string& fileName) {
+auto extension = GetExtension(filename);
+if (extension == "zip")
+return make_unique<ZipCompression>();
+else if (extension = "bz")
+return make_unique<BZCompression>();
+return nullptr;
+}
+\end{codebox}
+
+这种做法存在一些问题：
+
+\begin{itemize}
+\item 每当你写一个新类、想把它纳入工厂时，都必须在 \texttt{Create()} 方法中再加一个 \texttt{if}。在复杂系统中很容易忘记。
+\item 所有类型都必须为工厂所知。
+\item 在 \texttt{Create()} 中，我们随意地用字符串来表示类型。这种表示只在该方法中可见。如果你想在别处使用它呢？字符串很容易拼错，尤其是当你在多个地方比较它们时。
+\end{itemize}
+
+
+总而言之，工厂与这些类之间形成了强依赖。
+
+但如果类能够自行注册呢？这样会有帮助吗？
+
+\begin{itemize}
+\item 工厂只需做好自己的本职工作：根据某种匹配来创建新对象。
+\item 如果你新写一个类，无需改动工厂类的任何部分。这样的类会自动注册。
+\end{itemize}
+
+为了给你更多启发，我想展示一个现实中的例子。当你使用 Google Test 库，写下：
+
+\begin{codebox}[cpp]
+TEST(MyModule, InitTest) {
+// 实现...
+}
+\end{codebox}
+
+在这一个 \texttt{TEST} 宏背后发生了很多事情！首先，你的测试会被展开成一个单独的类——所以每个测试都是一个新类。但接着就有个问题：你有所有这些测试，测试运行器怎么知道它们呢？这正是本节想要解决的问题。这些类需要自动注册。
+
+看看这段代码：来自 googletest/…/\texttt{gtest-internal.h}\footnote{来自 googletest 源码中的 gtest-internal.h。}：
+
+\begin{codebox}[cpp]
+// （省略了部分代码）
+#define GTEST_TEST_(test_case_name, test_name, parent_class, parent_id)\
+class GTEST_TEST_CLASS_NAME_(test_case_name, test_name) \
+: public parent_class { \
+virtual void TestBody();\
+static ::testing::TestInfo* const test_info_ GTEST_ATTRIBUTE_UNUSED_;\
+};\
+\
+::testing::TestInfo* const GTEST_TEST_CLASS_NAME_(test_case_name, test_name)\
+::test_info_ =\
+::testing::internal::MakeAndRegisterTestInfo(\
+#test_case_name, #test_name, NULL, NULL, \
+new ::testing::internal::TestFactoryImpl<\
+GTEST_TEST_CLASS_NAME_(test_case_name, test_name)>);\
+void GTEST_TEST_CLASS_NAME_(test_case_name, test_name)::TestBody()
+\end{codebox}
+
+我删掉了一些代码以缩短篇幅，但大体上 \texttt{GTEST\_TEST\_} 被用在 \texttt{TEST} 宏中，而它会展开成一个新类。在下半部分，你可能看到一个名字 \texttt{MakeAndRegisterTestInfo}。这就是类注册的地方！注册之后，运行器就知道了所有已存在的测试，并能调用它们。
+
+实现类似系统的步骤如下：
+
+\begin{itemize}
+\item 某个接口——我们想要创建一些从同一个接口派生的类。这与“普通”工厂方法的要求相同。
+\item 一个工厂类，它还持有一张可用类型的映射表。
+\item 一个代理（proxy），用来创建给定的类。工厂现在不知道如何创建某个给定类型，所以我们必须提供某个代理类来完成这件事。
+\end{itemize}
+
+对于接口，我们可以使用 \texttt{ICompressionMethod}：
+
+\begin{codebox}[cpp]
+class ICompressionMethod {
+public:
+ICompressionMethod() = default;
+virtual ~ICompressionMethod() = default;
+virtual void Compress() = 0;
+};
+\end{codebox}
+
+然后是工厂：
+
+\begin{codebox}[cpp]
+class CompressionMethodFactory {
+public:
+using TCreateMethod = unique_ptr<ICompressionMethod>(*)();
+public:
+CompressionMethodFactory() = delete;
+static bool Register(const string& name, TCreateMethod funcCreate);
+static unique_ptr<ICompressionMethod> Create(const string& name);
+private:
+static Map<string, TCreateMethod> s_methods;
+};
+\end{codebox}
+
+工厂持有已注册类型的映射表。这里的关键在于，工厂现在使用某个方法（\texttt{TCreateMethod}）来创建所需的类型（这就是我们的代理）。类型的名称与创建方法必须在一个不同的地方初始化。
+
+这个工厂的实现：
+
+\begin{codebox}[cpp]
+class CompressionMethodFactory {
+public:
+using TCreateMethod = unique_ptr<ICompressionMethod>(*)();
+public:
+CompressionMethodFactory() = delete;
+static constexpr bool Register(string_view name,
+TCreateMethod createFunc) {
+if (auto val = s_methods.at(name, nullptr); val == nullptr) {
+if (s_methods.insert(name, createFunc)) {
+std::cout << name << " registered\n";
+return true;
+}
+}
+return false;
+}
+static std::unique_ptr<ICompressionMethod> Create(string_view name) {
+if (auto val = s_methods.at(name, nullptr); val != nullptr) {
+std::cout << "calling " << name << "\n";
+return val();
+}
+return nullptr;
+}
+private:
+static inline constinit Map<string_view, TCreateMethod, 4> s_methods;
+};
+\end{codebox}
+
+现在我们可以实现一个从 \texttt{ICompressionMethod} 派生的类，让它自行注册到工厂中：
+
+\begin{codebox}[cpp]
+class ZipCompression : public ICompressionMethod {
+public:
+virtual void Compress() override;
+static unique_ptr<ICompressionMethod> CreateMethod() {
+return std::make_unique<ZipCompression>();
+}
+static string_view GetFactoryName() { return "ZIP"; }
+private:
+static inline bool s_registered =
+CompressionMethodFactory::Register(ZipCompression::GetFactoryName(),
+CreateMethod);
+};
+\end{codebox}
+
+自注册的缺点在于，类本身需要多做一点工作。如你所见，我们必须定义一个静态的 \texttt{CreateMethod}。
+
+要注册这样的类，我们只需定义 \texttt{s\_registered}：
+
+\begin{codebox}[cpp]
+bool ZipCompression::s_registered =
+CompressionMethodFactory::Register(ZipCompression::GetFactoryName(),
+ZipCompression::CreateMethod);
+\end{codebox}
+
+这一机制的基本思路是依赖静态变量。它们会在 \texttt{main()} 被调用之前完成初始化。
+
+由于不同翻译单元中静态变量的初始化顺序是未指定的，工厂容器中元素的顺序可能会不同。在我们的例子里，每个名称/类型都不依赖于其他已注册的类型，所以这里我们是安全的。
+
+那么第一次插入呢？我们能确定 \texttt{Map} 已被创建并可供使用吗？
+
+这就是为什么我实现了一个特殊版本的 \texttt{Map}，它有一个（隐式的）\texttt{constexpr} 构造函数，并且借助 \texttt{constinit}，它会在 \texttt{s\_registered} 被初始化之前完成初始化（对某个最先注册的类而言）。
+
+\begin{myInfoBox}
+我目前的实现使用了 \texttt{std::array}，它可以用在常量表达式中。我们或许可以用 \texttt{std::map}，但那会处在未定义行为（Undefined Behaviour）的边缘，因此不保证能正常工作。在最终代码里，你还可以尝试 \texttt{std::vector}，它在 C++20 中获得了 \texttt{constexpr} 支持。
+\end{myInfoBox}
+
+
+还有一个我们应该提出的问题：\texttt{s\_registered} 会不会被编译器消除？
+
+幸运的是，我们这边也是安全的。根据 C++ 标准的最新草案：[basic.stc.static\#2]\footnote{C++ 标准最新草案中的 [basic.stc.static\#2]。}：
+
+\begin{myQuote}
+如果一个具有静态存储期（static storage duration）的变量带有副作用的初始化或析构函数，那么即使它看起来未被使用，也不得将其消除；但类对象或其拷贝/移动可按 class.copy.elision 的规定被消除。
+\end{myQuote}
+
+所以编译器不会优化掉这些变量。
+
+查看完整例子：
+
+\begin{codeboxt}[cpp]{代码清单 13.7 工厂与自注册类示例。在 Wandbox 上运行}
+#include "ICompressionMethod.h"
+#include "ZipCompression.h"
+#include <iostream>
+int main() {
+std::cout << "main starts...\n";
+if (auto pMethod = CompressionMethodFactory::Create("ZIP"); pMethod)
+pMethod->Compress();
+else
+std::cout << "Cannot find ZIP...\n";
+if (auto pMethod = CompressionMethodFactory::Create("BZ"); pMethod)
+pMethod->Compress();
+else
+std::cout << "Cannot find BZ...\n";
+if (auto pMethod = CompressionMethodFactory::Create("7Z"); pMethod)
+pMethod->Compress();
+else
+std::cout << "Cannot find 7Z...\n";
+}
+\end{codeboxt}
+
+\begin{myInfoBox}
+关于这一技术你还能找到更多内容，包括关于静态库的主题，见 C++ Stories 上的两篇文章：Factory With Self-Registering Types - C++ Stories\footnote{\url{https://www.cppstories.com/2018/02/factory-selfregister/}} 以及 Static Variables Initialization in a Static Library, Example - C++ Stories\footnote{\url{https://www.cppstories.com/2018/02/static-vars-static-lib/}}。
+\end{myInfoBox}
+
+\section{小结}
+
+这是一段有趣的旅程！希望你喜欢本章讨论的这些技术。
+
+我们从 string 类型的传参、通过 \texttt{in\_place} 减少额外拷贝，一路讲到拷贝并交换、CRTP，甚至自注册类型。主要目标不仅是摆弄一些人造的例子，而是展示一些实用技术，在这些技术中，对 C++ 初始化细节的了解会很有帮助。
+

@@ -1,0 +1,101 @@
+恭喜！
+
+你刚刚完成了本书的前半部分！这里有一份关于特殊成员函数（special member functions）与类型推导（type deduction）的快速小测验。试着回答下面的问题，然后我们继续旅程 :)
+
+\subsection{1. 在一个不从其他类型继承的类中，能否用与类名不同的名字来声明构造函数？}
+
+1. 能
+2. 不能
+3. 能，但只能命名为 \texttt{self()}
+
+\subsection{2. 下面这段代码会调用哪些操作？请选择一个选项。}
+
+\begin{codebox}[cpp]
+std::string s { "Hello World" };
+std::string other = s;
+\end{codebox}
+
+1. 会为 \texttt{s} 调用一个构造函数。然后，会为 \texttt{other} 调用一个赋值操作。
+2. 会为 \texttt{s} 调用一个构造函数，接着调用拷贝构造函数（copy constructor）来创建 \texttt{other}。
+3. 会为 \texttt{s} 调用一个构造函数，接着为 \texttt{other} 调用另一个常规构造函数。
+
+\subsection{3. 构造函数能否通过 return 语句返回一个值？}
+
+1. 能，它就像一个返回类型为类名的普通函数。
+2. 不能，构造函数没有指定任何返回类型。
+3. 能，不过需要通过一个名为 \texttt{self\_return} 的特殊数据成员。
+
+\subsection{4. 你能否像在构造函数 Type(int a, int b) 中那样，把委托构造函数（delegating constructor）与数据成员初始化混合使用？}
+
+例如：
+
+\begin{codebox}[cpp]
+struct Type {
+    explicit Type(int a) : a_(a) { }
+    explicit Type(int a, int b) : Type(a), b_(b) { }
+    int a_;
+    int b_;
+};
+\end{codebox}
+
+1. 能。
+2. 有时可以，取决于数据成员是否排在前面。
+3. 不能，这种情况下编译器会报错。
+
+\subsection{5. 下面的代码是否正确？}
+
+\begin{codebox}[cpp]
+Product* arr = new Product[10];
+// 使用……
+delete arr;
+\end{codebox}
+
+请选择正确的陈述：
+
+1. 正确。这段代码没问题，并且会正确地销毁 \texttt{arr}。
+2. 这段代码会产生内存泄漏，因为 \texttt{arr} 中并非所有元素都被删除。代码应该使用 \texttt{delete [] arr;}。
+3. 这段代码使用了 \texttt{delete arr}，但这是不必要的，因为编译器会正确地释放所有的 \texttt{Product}。
+
+\subsection{6. 请选择正确陈述}
+
+1. 拷贝初始化（copy initialization）会考虑 \texttt{explicit} 构造函数，如果存在匹配的构造函数就会使用它。
+2. 当你按值向函数传递实参时，会使用拷贝初始化来初始化函数形参。
+3. 聚合初始化（aggregate initialization）会对提供了初始化器的每个子对象或数组元素进行拷贝初始化。
+
+\subsection{7. 下面声明的变量 y 和 z 的类型分别是什么？}
+
+\begin{codebox}[cpp]
+int x = 42;
+const auto& y = x;
+auto z = y;
+\end{codebox}
+
+1. \texttt{y} 是 \texttt{const int\&}，\texttt{z} 是 \texttt{int}
+2. \texttt{y} 是 \texttt{int\&}，\texttt{z} 是 \texttt{int\&}
+3. \texttt{y} 是 \texttt{const int\&}，\texttt{z} 是 \texttt{int\&}
+
+\subsection{8. 关于 C++17 中的结构化绑定（structured binding），下列哪项陈述是正确的？}
+
+1. 结构化绑定允许你将多个变量绑定到元组（tuple）的元素上。
+2. 结构化绑定允许你将多个变量绑定到结构体（struct）的字段上。
+3. 结构化绑定允许你将多个变量绑定到数组的元素上。
+
+\subsection{9. 下面的代码会做什么？}
+
+\begin{codebox}[cpp]
+std::vector<int> vec {1, 2, 3, 4, 5};
+for (auto elem : vec)
+    elem = 10;
+\end{codebox}
+
+1. 代码无法编译，\texttt{elem} 不能绑定到 \texttt{vec}。
+2. 代码可以编译，循环结束后向量的所有元素值都会变成 \texttt{10}。
+3. 代码可以编译，循环结束后所有元素保持不变。
+
+\subsection{10. 你有 expr x = 42;。请选择正确陈述：}
+
+1. 当 \texttt{expr} 是 \texttt{int\&} 时可以编译。
+2. 当 \texttt{expr} 是 \texttt{int} 时可以编译。
+3. 当 \texttt{expr} 是 \texttt{const int\&} 时可以编译。
+
+请把你的答案写下来，并在附录 B（Appendix B）中核对。

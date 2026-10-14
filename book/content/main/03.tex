@@ -1,0 +1,820 @@
+常规构造函数让你可以在从一个参数列表创建对象时调用某些逻辑并初始化数据成员。但 C++ 还有两种特殊的构造函数类型，让你能够控制“使用一个同类实例来创建对象”的情形。这两种构造函数被称为拷贝构造函数（copy constructor）和移动构造函数（move constructor）。此外，你还可以提供自定义的赋值运算符（assignment operators），当把新值赋给已有对象时，编译器会调用它们。我们来看一下。
+
+\section{拷贝构造函数}
+
+拷贝构造函数（copy constructor）是一个特殊的成员函数，它把同类型的对象作为第一个参数，通常是通过 \texttt{const} 引用。
+
+\begin{codebox}[cpp]
+ClassName(const ClassName&);
+\end{codebox}
+
+严格来说，它可能还有其它参数，但这些参数都必须带有默认值，而在实践中这非常少见。
+
+当你用同一个类型的变量（通过拷贝初始化或直接初始化）来初始化一个对象，并且没有更匹配的构造函数（比如移动构造函数或常规构造函数）时，就会调用它。
+
+\begin{codebox}[cpp]
+Product base { 42, "base product" }; // 一个初始对象
+// 调用拷贝构造函数的各种初始化形式
+Product other { base };
+// 直接列表初始化
+Product another(base);
+// 带圆括号的直接初始化
+Product oneMore = base;
+// 拷贝初始化
+std::array<Product, 3> arr = { base, other, oneMore }; // 拷贝初始化
+Product foo(Product p) {
+Product temp{"from foo", p.id};
+return temp; // 拷贝初始化
+}
+Product x;
+foo(x); // 拷贝初始化
+\end{codebox}
+
+我们会在后面的小节中讨论上述所有形式。
+
+作为一个思维模型，我们可以假设大多数类都有它们默认、由编译器生成的拷贝构造函数。这样一个默认的拷贝构造函数会对每个数据成员执行一次按位拷贝（bitwise copy）。多亏了这种方式，你才能在特定类型没有任何自定义实现的情况下，初始化对象、把它们作为参数传入或从函数返回。然而，当你的类的某些数据成员不应该被浅拷贝（shallow copied）时——比如拥有的资源句柄（文件、指向内存块的指针等等）——实现拷贝构造函数可能就是必要的了。例如，假设一个类包含一个指向内存块的指针。当默认的拷贝构造函数拷贝这样一个指针时，得到的指针副本会指向完全相同的内存位置。类似地，如果你的类使用一个指向文件的句柄，那么在按位拷贝之后，该句柄也会被复制，于是两个对象会关联到同一个文件。取决于程序的需求，这可能并不是你想要的结果。在涉及指针的情况下，通常更好的做法是分配一块新的内存，并复制那块内存中的数据。
+
+下面的示意图展示了浅拷贝（shallow copy）的情形：
+
+在图中，你可以看到浅拷贝（按位拷贝）与深拷贝（deep copy）方式的对比。如果你拷贝了资源句柄，得到的对象会指向同一个
+
+\myGraphic{0.9}{images/fig_p054_1.png}{}
+
+资源。要得到完整的版本，你需要复制资源，然后正确地把资源句柄赋给那个新的副本。
+
+像 \texttt{std::vector} 或 \texttt{std::string} 这样的标准库容器在内部都含有指向内存缓冲区的指针，用来存储元素。它们都支持完整的数据拷贝，所以当你把一个 vector 拷贝到另一个时，内存缓冲区也会一并被拷贝。在你的代码中使用这些类型时，你无需考虑那些内部机制。
+
+\section{拷贝构造函数的规范实现}
+
+实现拷贝构造函数很直接，和常规构造函数非常相似。唯一的区别在于：你只有一个参数，它是那个相同类型对象的（\texttt{const}）引用。
+
+对于 \texttt{Product} 类，我们可以写出如下代码：
+
+\begin{codebox}[cpp]
+class Product {
+public:
+explicit Product(int id, const std::string& name)
+: id_{id}, name_{name} {
+std::cout << "Product(): " << id_ << ", " << name_ << '\n';
+}
+// 拷贝构造函数
+Product(const Product& other)
+: id_{other.id_}, name_{other.name_} { }
+private:
+int id_;
+std::string name_;
+};
+\end{codebox}
+
+如你所见，拷贝构造函数使用成员初始化列表来从 \texttt{other} 复制数据。请注意，没必要使用公开的 getter，因为我们可以访问所有私有数据成员。语法要求你使用一个引用，所以写 \texttt{Product(Product other)} 不会被当作拷贝构造函数。
+
+\begin{myInfoBox}
+拷贝构造函数也可以接受 \texttt{non-const} 参数，比如 \texttt{Product(Product\& other)}。不过，这样的构造函数可能会修改 \texttt{other} 对象，使代码更难阅读和理解。当你想要“窃取”另一个对象的内部资源时，最好使用移动语义（move semantics）和移动构造函数。
+\end{myInfoBox}
+
+
+\begin{myInfoBox}
+拷贝构造函数可以被标记为 \texttt{explicit}，但这并不是常见的做法，并且可能会阻止拷贝初始化。
+\end{myInfoBox}
+
+下面是另一个启用了基本日志的例子。这样的控制台输出有助于观察构造函数是如何、以及哪些被调用的：
+
+\begin{codeboxt}[cpp]{代码清单 3.1 一个带日志的拷贝构造函数示例。在 Compiler Explorer 上运行}
+class Product {
+public:
+explicit Product(int id, const std::string& name)
+: id_{id}, name_{name} {
+std::cout << "Product(): " << id_ << ", " << name_ << '\n';
+}
+Product(const Product& other)
+: id_{other.id_}, name_{other.name_}
+{
+std::cout << "Product(copy): " << id_ << ", " << name_ << '\n';
+}
+const std::string& name() const { return name_; }
+private:
+int id_;
+std::string name_;
+};
+\end{codeboxt}
+
+下面是创建 \texttt{Product} 对象的代码：
+
+\begin{codeboxt}[cpp]{代码清单 3.1 一个带日志的拷贝构造函数示例（演示）。在 Compiler Explorer 上运行}
+void foo(Product p) { std::cout << "inside foo()\n"; }
+int main() {
+Product base { 42, "base product" }; // 一个初始对象
+std::cout << base.Name() << " created\n";
+std::cout << "Product other { base };\n";
+Product other { base };
+std::cout << "Product another(base);\n";
+Product another(base);
+std::cout << "Product oneMore = base;\n";
+Product oneMore = base;
+std::cout << "std::array<Product, 2> = { base, other };\n";
+std::array<Product, 2> arr = { base, other };
+std::cout << "calling foo()\n";
+foo(arr[0]);
+}
+\end{codeboxt}
+
+
+如果你运行代码，应该会看到如下输出：
+
+\begin{codebox}[cpp]
+Product(): 42, base product
+base product created
+Product other { base };
+Product(copy): 42, base product
+Product another(base);
+Product(copy): 42, base product
+Product oneMore = base;
+Product(copy): 42, base product
+std::array<Product, 2> = { base, other };
+Product(copy): 42, base product
+Product(copy): 42, base product
+calling foo()
+Product(copy): 42, base product
+inside foo()
+\end{codebox}
+
+在第 10 行，我们构造了 \texttt{base product}，然后用它来拷贝构造所有其它实例：\texttt{other}、\texttt{another} 和 \texttt{oneMore}。每次调用的都是拷贝构造函数。对于数组 \texttt{std::array<Product, 2>} 也是如此。
+
+之后我们调用函数 \texttt{foo()}，当你按值传入参数时，就必须通过一次拷贝构造函数的调用来创建一个副本。
+
+\section{拷贝消除}
+
+现在，我们来看下面的代码：
+
+（代码清单 3.2 对应的例子，可在 Compiler Explorer 上运行）
+
+\begin{codebox}[cpp]
+Product createProduct() {
+Product temp{101, "from createProduct()"};
+return temp;
+}
+int main() {
+std::cout << "calling createProduct()\n";
+Product created = createProduct();
+}
+\end{codebox}
+
+输出为：
+
+\begin{codebox}[cpp]
+calling createProduct()
+Product(): 101, from createProduct()
+\end{codebox}
+
+这个结果与我之前写的内容相矛盾：对于 return 语句，本应调用拷贝构造函数。从技术上讲确实应该，但输出只显示了一个常规构造函数。这个特性是一种编译器优化，允许它“消除（elide）”这类多余的对象拷贝。准确地说，它被称为具名返回值优化（Named Return Value Optimization，NRVO¹），因为这里有一个我们“复用”的具名变量。编译器能够看穿这次初始化，推断出 \texttt{temp} 对象只是用来初始化 \texttt{created} 的，从而可以“压缩”创建步骤。GCC 编译器有一个开关可以关闭这种优化：\texttt{-fno-elide-constructors}。
+
+\footnotetext{\url{https://docs.microsoft.com/en-us/cpp/cpp/trivial-standard-layout-and-pod-types?view=msvc-170}}
+
+如果你用那个开关编译，应该能看到如下内容：
+
+\begin{codebox}[cpp]
+calling createProduct()
+Product(): 101, from createProduct()
+Product(copy): 101, from createProduct()
+\end{codebox}
+
+参见 Compiler Explorer。
+
+但还有更多！从 C++17 起，出现了强制的拷贝消除（mandatory copy elision），也叫“延迟临时对象物化（deferred temporary materialization）”。虽然前面的例子是一种可选的编译器优化，但这一次我们有了能清晰表达新行为的语言规则。不深入细节地说，当存在一个未命名的临时对象、并用来初始化一个新实体时，它会消除额外的拷贝。例如：
+
+（代码清单 3.3 对应的例子，可在 Compiler Explorer 上运行）
+
+\begin{codebox}[cpp]
+Product createProduct() {
+return {101, "from createProduct()"};
+}
+int main() {
+std::cout << "calling createProduct()\n";
+Product created = createProduct();
+}
+\end{codebox}
+
+这一次编译器总会生成如下输出：
+
+\begin{codebox}[cpp]
+calling createProduct()
+Product(): 101, from createProduct()
+\end{codebox}
+
+换句话说，来自 \texttt{createProduct} 的临时对象被跳过了，直接用来初始化 \texttt{created} 对象。这个特性有助于优化，并且让那些以前无法从工厂函数返回的非可拷贝类型能够高效地工作。
+
+如果你想更多地了解这个特性，可以看看我的书《C++17 in Detail》³，或者参见这篇博客文章：Guaranteed Copy Elision Does Not Elide Copies⁴ @VisualC++ Team Blog。
+
+\footnotetext{\url{https://leanpub.com/cpp17indetail}}
+\footnotetext{\url{https://devblogs.microsoft.com/cppblog/guaranteed-copy-elision-does-not-elide-copies/}}
+
+\section{编译器生成的拷贝构造函数}
+
+如果你的类符合以下关键规则，编译器就会为你生成一个隐式的拷贝构造函数：
+
+\begin{itemize}
+\item 你的类拥有可拷贝的非静态数据成员（它们的拷贝构造函数是可访问的、未被 \texttt{delete} 的）；
+\item 你的类拥有一个可拷贝的直接基类或虚基类；
+\item 你的类不含有任何右值引用（rvalue reference）类型的数据成员；
+\item 你的类没有用户定义的移动构造函数或移动赋值运算符。
+\end{itemize}
+
+你可以在 @C++Reference⁵ 的这个实用清单中找到全部规则。
+
+\footnotetext{\url{https://en.cppreference.com/w/cpp/language/copy_constructor\#Deleted_implicitly-declared_copy_constructor}}
+
+作为例子，我们来看下面的代码：
+
+\begin{codeboxt}[cpp]{代码清单 3.4 非默认的拷贝构造函数。在 Compiler Explorer 上运行}
+#include <iostream>
+#include <string>
+struct Name {
+explicit Name(const std::string& str): name_{str} { }
+Name(const Name&) = delete;
+std::string name_;
+};
+class Product {
+public:
+explicit Product(int id, const std::string& name)
+: id_{id}, name_{name} {
+std::cout << "Product(): " << id_ << ", " << name_.name_ << '\n';
+}
+private:
+int id_;
+Name name_;
+};
+int main() {
+Product first{10, "basic"};
+Product second { first };
+}
+\end{codeboxt}
+
+请看我们试图调用拷贝构造函数的那一行。它无法编译：
+
+\begin{codebox}[cpp]
+<source>:10:7: note: 'Product::Product(const Product&)' is implicitly
+deleted because the default definition would be ill-formed:
+10 | class Product {
+|
+^~~~~~~
+\end{codebox}
+
+编译器告诉我们它无法创建拷贝构造函数，因为 \texttt{name} 数据成员无法被轻易拷贝，因为它删除了自己的拷贝构造函数。
+
+我们也可以通过查看来自 C++Insights⁶ 的输出观察到这一点：
+
+\footnotetext{\url{https://cppinsights.io/s/15ea2cb1}}
+
+\begin{codebox}[cpp]
+public:
+// inline Product(const Product &) = delete;
+// inline Product(Product &&) = delete;
+// inline ~Product() noexcept = default;
+\end{codebox}
+
+\section{移动构造函数}
+
+移动构造函数（move constructor）接受同类型的右值引用（rvalue references）。通常，这样的构造函数具有如下形式：
+
+\begin{codebox}[cpp]
+ClassName(ClassName&&) noexcept;
+\end{codebox}
+
+我们来试着解读完整的语法。简而言之，右值引用是临时对象，通常出现在表达式的右侧，并且其值即将消亡。例如：
+
+\begin{codebox}[cpp]
+std::string hello { "Hello Amazing"};
+// 左值，一个常规对象
+std::string world { " Programming World"}; // 左值
+std::string msg = hello + world;
+\end{codebox}
+
+上面，表达式 \texttt{hello + world} 创建了一个临时对象。它没有名字，我们也难以访问它。这样的临时对象会在表达式结束后立即结束其生命期（除非它被赋给一个 \texttt{const} 或右值引用⁷），所以我们可以安全地从它们身上“窃取”资源。对于整数或浮点这类内建类型来说，这样做没有意义，因为我们无论如何都得复制值。但对于字符串或内存缓冲区，我们可以避免数据复制，而重新赋值指针。下面的示意图展示了这种情形：
+
+移动构造函数的思想
+
+该图展示了计算 \texttt{hello} \texttt{world} 之后、以及随后 \texttt{msg} 被 \texttt{+} 初始化时的状态。编译器创建了一个带有长字符串的临时对象，该字符串存储在一个在 string 外部分配的缓冲区中。string 对象有一个指向那个缓冲区的指针。随后，\texttt{msg} 从那个临时对象创建出来。我们知道该对象将会消亡，因此我们可以把指向内存缓冲区的指针重新赋值过去。\texttt{msg} 得到一个指向长字符串的指针。临时对象则得到 \texttt{nullptr}（从概念上说，因为内部实现可能有所不同）。
+
+\footnotetext{临时对象的生命期可以通过绑定到 const 左值引用或右值引用来延长。详见相关说明。}
+
+移动构造函数是一种支持“从临时对象进行初始化”这种情形的方式。在许多情况下，它们是对常规拷贝构造函数调用的一种优化。此外，它们也可以用来传递资源的“所有权（ownership）”，例如配合智能指针（smart pointers）。当你有一个具名的常规对象时，可以用 \texttt{std::move} 函数把它标记为即将消亡。这告诉编译器该对象的值不再需要了，因此可以安全地从中“窃取”资源。
+
+来看这个例子：
+
+\myGraphic{0.9}{images/fig_p062_1.png}{}
+
+\begin{codeboxt}[cpp]{代码清单 3.5 移动构造函数。在 Compiler Explorer 上运行}
+#include <iostream>
+#include <string>
+class Product {
+public:
+explicit Product(int id, const std::string& name)
+: id_{id}, name_{name} {
+std::cout << "Product(): " << id_ << ", " << name_ << '\n';
+}
+Product(Product&& other) noexcept
+: id_{other.id_}, name_{std::move(other.name_)} {
+std::cout << "Product(move): " << id_ << ", " << name_ << '\n';
+}
+const std::string& name() const { return name_; }
+private:
+int id_;
+std::string name_;
+};
+int main() {
+Product tvSet {100, "tv set"};
+std::cout << tvSet.name() << " created...\n";
+Product setV2 { std::move(tvSet) };
+std::cout << setV2.name() << " created...\n";
+std::cout << "old value: " << tvSet.name() << '\n';
+}
+\end{codeboxt}
+
+运行代码时，你会看到如下输出：
+
+\begin{codebox}[cpp]
+Product(): 100, tv set
+tv set created...
+Product(move): 100, tv set
+tv set created...
+old value:
+\end{codebox}
+
+如你所见，我们先创建第一个对象，然后把它标记为即将消亡。这就给了编译器调用移动构造函数的机会。
+
+\begin{codebox}[cpp]
+Product(Product&& other) noexcept
+: id_(other.id_), name_(std::move(other.name_))
+\end{codebox}
+
+上面的实现与拷贝构造函数类似，但我们必须注意细节。由于 \texttt{id\_} 只是一个整数，我们唯一能做的就是复制这个值。在这里我们无法进行任何优化。对于 \texttt{name\_} 成员，我们可以用 \texttt{std::move(other.name\_)} 来初始化它。我们遇到的第一个问题是，\texttt{other.name\_} 是有名字的，因此不是临时的（临时对象没有名字）；我们无法移动（拿走、窃取）它的内容。正因如此，我们用表达式 \texttt{std::move(other.name\_)} 来告诉编译器把它当作临时的。这会调用 \texttt{std::string} 的移动构造函数，并有可能从 \texttt{other.name\_} 那里“窃取”缓冲区。
+
+移动构造函数必须保证另一个对象处于“未指定但有效（unspecified but valid）”的状态。在我们的例子中，这一点可以从输出的最后一行看出来。\texttt{old value:} 这一行以空结尾，说明那个字符串被清空了。
+
+\begin{myInfoBox}
+移动构造函数可以被标记为 \texttt{explicit}，但这并不是常见的做法，并且可能会影响依赖隐式移动构造函数的泛型代码（比如标准算法）。
+\end{myInfoBox}
+
+\section{noexcept 与移动构造函数}
+
+虽然我提到过 \texttt{noexcept} 不会在本书中讲解，但我需要对此规则做一个例外。\texttt{noexcept} 用于函数声明时的基本原则是：保证该函数不会返回任何异常（不会从函数作用域中抛出）。如果它抛出了，编译器可以调用 \texttt{std::terminate()} 来代替常规的异常处理。拥有一个 \texttt{noexcept} 函数能让编译器和库对代码进行优化。
+
+例如，当你有一个 \texttt{std::vector<T>}，如果 \texttt{T} 的移动操作被标记为 \texttt{noexcept}，那么 vector 就可以用移动（move）而不是拷贝（copy）来执行扩容（resize）操作（以保证安全）。为了说明这种行为，我修改了 \texttt{Product} 类并添加了一个拷贝构造函数：
+
+
+\begin{codebox}[cpp]
+Product(const Product& other) : id_{other.id_}, name_{other.name_} {
+std::cout << "Product(copy): " << id_ << ", " << name_ << '\n';
+}
+Product(Product&& other) : id_{other.id_}, name_{std::move(other.name_)} {
+std::cout << "Product(move): " << id_ << ", " << name_ << '\n';
+}
+\end{codebox}
+
+注意，移动构造函数中没有 \texttt{noexcept}。现在，如果我们运行下面的演示代码：
+
+\begin{codeboxt}[cpp]{代码清单 3.6 std::vector 扩容时的拷贝。在 Compiler Explorer 上运行}
+int main() {
+std::vector<Product> prods;
+prods.emplace_back(101, "car");
+prods.emplace_back(202, "box");
+prods.emplace_back(303, "toy");
+prods.emplace_back(404, "mug");
+prods.emplace_back(505, "pencil");
+}
+\end{codeboxt}
+
+我们会看到如下输出：
+
+\begin{codebox}[cpp]
+Product(): 101, car
+Product(): 202, box
+Product(copy): 101, car
+Product(): 303, toy
+Product(copy): 101, car
+Product(copy): 202, box
+Product(): 404, mug
+Product(): 505, pencil
+Product(copy): 101, car
+Product(copy): 202, box
+Product(copy): 303, toy
+Product(copy): 404, mug
+\end{codebox}
+
+我们来试着解读这段输出。\texttt{emplace\_back} 函数（从 C++11 起可用）使用你传入的参数，在容器末尾创建一个新元素。或者，我们也可以使用 \texttt{push\_back}，但这需要对 \texttt{Product} 对象进行一次额外的拷贝。当我们添加第一个元素时，你会看到一个常规构造函数被调用。现在，添加第二个元素时，vector 必须扩大其内部缓冲区，并把已有元素复制到新的缓冲区中。这就是为什么你会看到一个针对 \texttt{"box"} 对象的常规构造函数，随后是一个针对 \texttt{"car"} 的拷贝构造函数。类似地，当我添加第三个元素时，它的构造函数被调用，然后必须调用 \texttt{"car"} 和 \texttt{"box"} 的拷贝。之后，随着我们添加更多元素、容器不断增大，这个过程会持续下去。这依赖于具体实现，但通常 \texttt{std::vector} 在每次需要扩容时可能会按 1.5 倍或 2 倍增长。例如，它从 1 个元素、容量为 1 开始，然后是 2 个元素、容量为 2，3 个元素、容量为 4，5 个元素、容量为 6 或 8，依此类推。这有助于摊还（amortize）添加新值的成本。
+
+现在，让我们修改移动构造函数，把它变成 \texttt{noexcept}：
+
+\begin{codeboxt}[cpp]{代码清单 3.7 std::vector 扩容时的移动。在 Compiler Explorer 上运行}
+Product(Product&& other) noexcept
+: id_{other.id_}, name_{std::move(other.name_)} {
+std::cout << "Product(move): " << id_ << ", " << name_ << '\n';
+}
+\end{codeboxt}
+
+运行代码时，你会看到如下日志：
+
+\begin{codebox}[cpp]
+Product(): 101, car
+Product(): 202, box
+Product(move): 101, car
+Product(): 303, toy
+Product(move): 101, car
+Product(move): 202, box
+Product(): 404, mug
+Product(): 505, pencil
+Product(move): 101, car
+Product(move): 202, box
+Product(move): 303, toy
+Product(move): 404, mug
+\end{codebox}
+
+现在，编译器调用的是移动构造函数，而不是拷贝构造函数！在许多情况下，这比复制数据快得多，因为我们可以复制指针，而不是复制字符串的完整内容。库是否使用这种优化技术取决于具体实现，但 MSVC、GCC 和 Clang 的库实现都遵循这条规则。
+
+下面你可以看到这个“增长”过程的基本示意图：
+
+三个元素的 vector 扩容过程
+
+在图中，左侧你可以看到 \texttt{prods} vector，它有一个指向包含所有元素的内存缓冲区的指针。vector 类通常还含有其它数据成员，比如 size 和 capacity，但我们采用这个简单模型。在插入第一个元素之后，缓冲区只有一个对象的容量；如果我们添加更多值，它就必须增长。在第三行，你可以看到一个新的缓冲区，里面有 3 个元素，但还有一个留给第四个元素用的“透明”空位。每次缓冲区被重新创建时，它都必须复制 / 移动已有的元素。
+
+采用这种技术的原因是：当移动构造函数没有被标记为 \texttt{noexcept} 时，容器必须为这样一种情况做好准备——它试图把元素复制到新缓冲区，而某个操作在某一时刻抛出了异常。要回到安全状态，唯一的办法就是放弃这次复制。而当有 \texttt{noexcept} 的移动可用时，vector 的实现就可以假定不会发生异常，移动对所有元素都是“安全”的。
+
+标准库中的其它算法，比如 \texttt{std::sort}，也可能从移动操作带有 \texttt{noexcept} 保证中获益。
+
+你可以在以下 C++ 核心指南中阅读更多相关内容：C.66：让移动操作（move operations）为 \texttt{noexcept}⁸。也可以参见 Andrzej Krzemieński 的这篇详细文章：Using noexcept @Andrzej's C++ blog⁹。
+
+\myGraphic{0.9}{images/fig_p067_1.png}{}
+
+\footnotetext{\url{https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines\#c66-make-move-operations-noexcept}}
+\footnotetext{\url{https://akrzemi1.wordpress.com/2011/06/10/using-noexcept/}}
+
+\section{编译器生成的移动构造函数}
+
+别担心！如果你的类使用的是基本类型或标准库中的类型，那就不需要编写自定义的移动构造函数。在大多数情况下，只要你的类符合以下规则，编译器就会创建一个默认实现：
+
+\begin{itemize}
+\item 没有用户声明的拷贝构造函数。
+\item 没有用户声明的拷贝赋值运算符。
+\item 没有用户声明的移动赋值运算符。
+\item 没有用户声明的析构函数。
+\item 所有非静态数据成员都有可访问的移动构造函数。
+\item 你的类拥有一个可移动的、直接或间接的基类。
+\item 你的类拥有一个虚基类，或者一个没有已删除或不可访问的析构函数的非静态数据成员。
+\end{itemize}
+
+这些规则是合乎逻辑的。例如，如果你声明了一个自定义的拷贝构造函数，那么你的类很可能很独特，因此移动操作也应该由你而不是编译器来实现。
+
+你可以在 @C++Reference 的这个实用清单中找到全部规则。
+
+\section{与赋值的区分}
+
+关键是要能分辨：编译器是在调用拷贝 / 移动构造函数，还是在调用赋值运算符（assignment operator）。代码看起来可能相似，但它们的行为不同。C++ 作为一种强大的能力，允许我们为用户自定义类型实现运算符（operators）。这类运算符让有关数学、字符串处理、关系、以及流输出或输入等操作变得更轻松、更自然。例如，\texttt{std::string} 实现了用于字符串拼接的 \texttt{operator+}。类似地，你可以为表示空间中 3D 向量的类定义 \texttt{operator-}。你可以在 @C++Reference 的运算符重载页面看到完整的运算符列表。
+
+如果你不提供自定义声明，编译器就会尝试定义一个隐式版本。虽然大多数运算符对用户自定义类型不起作用，并且在你实现它们之前并不存在，但有一个特殊的 \texttt{operator=}，称为赋值运算符。默认情况下，隐式版本会对给定类型的子对象调用赋值运算符。例如：
+
+\begin{codebox}[cpp]
+struct Point { int x; int y; };
+Point pt { 10, 10 };
+Point another { 100, 100 };
+another = pt;
+// 调用了隐式赋值运算符！
+\end{codebox}
+
+即使我没有为 \texttt{operator=} 提供任何实现，编译器也会定义它，我可以写出这个赋值：\texttt{another = pt}。默认情况下，该运算符把数据成员从 \texttt{pt} 复制到 \texttt{anther}（原文如此，应为 another）。由于 \texttt{Point} 类型是平凡的（trivial），并且其数据成员使用的是内建类型，我们会得到 \texttt{pt} 的一个按位拷贝。
+
+基本形式上，我们至少可以用两种形式来实现赋值运算符：
+
+\begin{codebox}[cpp]
+// 拷贝赋值运算符
+Product& operator=(const Product& other) { /* ... */}
+\end{codebox}
+
+或者
+
+\begin{codebox}[cpp]
+// 移动赋值运算符
+Product& operator=(Product&& other) { /* ... */}
+\end{codebox}
+
+当赋值表达式右侧是一个左值（lvalue）时，会调用拷贝赋值运算符。当右侧是一个右值引用时，会调用移动赋值运算符。
+
+请看下面的代码，我为 \texttt{Product} 类实现了一个拷贝赋值：
+
+\begin{codeboxt}[cpp]{代码清单 3.8 Product 的拷贝赋值。在 Compiler Explorer 上运行}
+class Product {
+public:
+explicit Product(int id, const std::string& name)
+: id_{id}, name_{name} {
+std::cout << "Product(): " << id_ << ", " << name_ << '\n';
+}
+Product(const Product& other) : id_{other.id_}, name_{other.name_} {
+std::cout << "Product(copy): " << id_ << ", " << name_ << '\n';
+}
+Product& operator=(const Product& other) {
+if (this == &other)
+return *this;
+id_ = other.id_;
+name_ = other.name_;
+std::cout << "operator=(copy): " << id_ << ", " << name_ << '\n';
+return *this;
+}
+const std::string& name() const { return name_; }
+private:
+int id_;
+std::string name_;
+};
+\end{codeboxt}
+
+下面是演示代码：
+
+\begin{codebox}[cpp]
+Product base { 42, "base" };
+// 调用了拷贝构造函数！
+Product first { base };
+Product second = first;
+// 调用了拷贝构造函数！
+Product third { 100, "third" };
+third = second; // 调用了赋值运算符！
+\end{codebox}
+
+当你初始化一个对象时，编译器会调用拷贝构造函数。当一个实体已经存在时，程序执行的是赋值操作。
+
+下面是相应的移动赋值运算符版本：
+
+\begin{codeboxt}[cpp]{代码清单 3.9 Product 的移动赋值。在 Compiler Explorer 上运行}
+class Product {
+public:
+explicit Product(int id, const std::string& name)
+: id_{id}, name_{name} {
+std::cout << "Product(): " << id_ << ", " << name_ << '\n';
+}
+Product(Product&& other) noexcept
+: id_{other.id_}, name_{std::move(other.name_)} {
+std::cout << "Product(move): " << id_ << ", " << name_ << '\n';
+}
+Product& operator=(Product&& other) noexcept {
+id_ = other.id_;
+name_ = std::move(other.name_);
+std::cout << "operator=(move): " << id_ << ", " << name_ << '\n';
+return *this;
+}
+const std::string& name() const { return name_; }
+private:
+int id_;
+std::string name_;
+};
+Product base { 42, "base" };
+Product first { std::move(base) };
+// 调用了移动构造函数！
+std::cout << "base.name() after move: " << base.name() << '\n';
+Product second = std::move(first);
+// 调用了移动构造函数！
+std::cout << "first.name() after move: " << first.name() << '\n';
+Product third { 100, "third" };
+third = std::move(second); // 调用了赋值运算符！
+std::cout << "second.name() after move: " << second.name() << '\n';
+\end{codeboxt}
+
+在上面，当我们使用 \texttt{std::move} 并把一个对象标记为即将消亡时，可以明确地要求调用移动构造函数。当一个对象已经存在、而我们给它赋一个新值时，就会调用赋值运算符。如果我们运行上面的代码，你会得到如下输出：
+
+\begin{codebox}[cpp]
+Product(): 42, base
+Product(move): 42, base
+base.name() after move:
+Product(move): 42, base
+first.name() after move:
+Product(): 100, third
+operator=(move): 42, base
+second.name() after move:
+\end{codebox}
+
+如你所见，在我们从一个对象移动之后，它会处于“未指定但有效”的状态。对于字符串来说，这意味着一个空字符串。
+
+\section{为构造函数添加调试日志}
+
+作为练习，我们给 \texttt{DataPacket} 类加上日志，看看每个构造函数是何时被调用的。
+
+\begin{codeboxt}[cpp]{代码清单 3.10 在 DataPacket 类中记录日志。在 Compiler Explorer 上运行}
+class DataPacket {
+std::string data_;
+size_t checkSum_;
+size_t serverId_;
+public:
+DataPacket() : data_{}, checkSum_{0}, serverId_{0} { }
+explicit DataPacket(const std::string& data, size_t serverId)
+: data_{data}, checkSum_{calcCheckSum(data)}, serverId_{serverId} {
+std::cout << "Ctor for \"" << data_ << "\"\n";
+}
+DataPacket(const DataPacket& other)
+: data_{other.data_}
+, checkSum_{other.checkSum_}
+, serverId_{other.serverId_} {
+std::cout << "Copy ctor for \"" << data_ << "\"\n";
+}
+DataPacket(DataPacket&& other) noexcept
+: data_{std::move(other.data_)}
+// 移动 string 成员……
+, checkSum_{other.checkSum_}
+// 内建类型无需移动……
+, serverId_{other.serverId_} {
+other.checkSum_ = 0; // 把它留在合适的状态
+std::cout << "Move ctor for \"" << data_ << "\"\n";
+}
+DataPacket& operator=(const DataPacket& other) {
+if (this != &other) {
+data_ = other.data_;
+checkSum_ = other.checkSum_;
+serverId_ = other.serverId_;
+std::cout << "Assignment for \"" << data_ << "\"\n";
+}
+return *this;
+}
+DataPacket& operator=(DataPacket&& other) noexcept {
+if (this != &other) {
+data_ = std::move(other.data_);
+checkSum_ = other.checkSum_;
+other.checkSum_ = 0; // 把它留在合适的状态
+serverId_ = other.serverId_;
+std::cout << "Move Assignment for \"" << data_ << "\"\n";
+}
+return *this;
+}
+// getters/setters
+};
+\end{codeboxt}
+
+下面是 \texttt{main()} 函数：
+
+\begin{codeboxt}[cpp]{代码清单 3.11 在 DataPacket 类中记录日志（main 函数）。在 Compiler Explorer 上运行}
+int main() {
+DataPacket firstMsg {"first msg", 101 };
+DataPacket copyMsg { firstMsg };
+DataPacket secondMsg { "second msg", 202 };
+copyMsg = secondMsg;
+DataPacket movedMsg { std::move(secondMsg)};
+// 现在我们窃取了数据，所以它应该是空的……
+std::cout << "secondMsg's data after move ctor): \""
+<< secondMsg.getData() << "\", sum: "
+<< secondMsg.getCheckSum() << '\n';
+movedMsg = std::move(firstMsg);
+// 现在我们窃取了 name，所以它应该是空的……
+std::cout << "firstMsg's data after move ctor): \""
+<< firstMsg.getData() << "\", sum: "
+<< firstMsg.getCheckSum() << '\n';
+}
+\end{codeboxt}
+
+运行示例时，你应该会看到如下输出：
+
+\begin{codebox}[cpp]
+Ctor for "first msg"
+Copy ctor for "first msg"
+Ctor for "second msg"
+Assignment for "second msg"
+Move ctor for "second msg"
+secondMsg's data after move ctor): "", sum: 0
+Move Assignment for "first msg"
+firstMsg's data after move ctor): "", sum: 0
+\end{codebox}
+
+这个例子创建了几个 \texttt{DataPacket} 对象，每次创建时你都可以看到编译器调用了合适的构造函数或赋值运算符。例如，在第 3 行，我们需要一次拷贝构造函数调用。另一方面，第 5 行显示的是一次赋值（\texttt{copyMsg} 已经存在）。在 \texttt{main()} 的最后部分，第 8 行和第 14 行，有对 \texttt{std::move()} 的调用，它把 \texttt{secondMsg} 和 \texttt{firstMsg} 标记为右值引用，其内容可以被移动。这意味着该对象在之后就不重要了，我们可以从中“窃取”。在这种情况下，编译器会调用移动构造函数或移动赋值运算符。
+
+\begin{myInfoBox}
+例子中的日志部分有点粗糙，因为该类直接调用了一个全局的流对象。在某些情况下，这可能会让单元测试或一般的类使用变得复杂。更好的做法是依赖某个可配置的“追踪 / 日志（tracing/logging）”对象，并把它作为参数传给构造函数。我们会在关于“作为静态数据成员的引用”的小节中讨论这种方法。
+\end{myInfoBox}
+
+\section{平凡类与用户提供的默认构造函数}
+
+我们已经介绍了默认、拷贝和移动构造函数的基础知识。现在，我们可以试着回答一个之前可能多次出现的问题：\texttt{= default}、把一个特殊成员函数声明为空 \texttt{\{\}}，或者不声明任何东西——这三者之间有什么区别？
+
+我们来看这个例子，假设我们有几个相似的类 \texttt{MyTypeX}：
+
+
+\begin{codebox}[cpp]
+struct MyType0 {
+int x;
+};
+struct MyType1 {
+MyType1() { }
+int x;
+};
+struct MyType2 {
+MyType2() = default;
+int x;
+};
+struct MyType3 {
+MyType3();
+int x;
+};
+MyType3::MyType3() = default;
+\end{codebox}
+
+如你所见，有四种方式可以得到一个“空的”构造函数和隐式的默认拷贝构造函数。核心区别在于：在 \texttt{MyType0} 和 \texttt{MyType2} 中，默认构造函数被视为“非用户提供的（not user-provided）”。这个术语在 C++ 标准中有一些后果。例如，\texttt{MyType0} 和 \texttt{MyType2} 都被认为是平凡的（trivial）。
+
+首先：“用户提供的（user-provided）”是什么意思？根据标准 dcl.fct.def.default\#5：
+
+如果一个函数是用户声明的（user-declared），并且在其首次声明时没有被显式地设为 \texttt{default} 或 \texttt{delete}，那么它就是用户提供的。
+
+\begin{codebox}[cpp]
+struct X {
+X() = default;
+// 1
+X(const X&) { /*...*/ }
+// 2
+};
+\end{codebox}
+
+在上面，第一个声明 \texttt{// 1} 不是用户提供的。它是用户声明的（因为我们声明了它），但由于我们显式地把它 \texttt{=default}，所以它不被视为用户提供的。另一方面，拷贝构造函数是用户提供的，因为我们提供了它自定义的实现。\texttt{MyType0} 也是一样：我们没有提供任何特殊成员函数；或者 \texttt{MyType2} 也是：我们声明了一个默认构造函数，但显式地把它设为 \texttt{default}，因此它也不是用户提供的。
+
+根据 C++ 标准：
+
+平凡类（trivial class）是指：可平凡拷贝（trivially copyable），并且拥有一个或多个可用的默认构造函数，且这些构造函数都是平凡的。
+
+而可平凡拷贝的类（trivially copyable class）是指：
+
+\begin{itemize}
+\item 至少拥有一个可用的拷贝构造函数、移动构造函数、拷贝赋值运算符或移动赋值运算符；
+\item 其中每个可用的拷贝构造函数、移动构造函数、拷贝赋值运算符和移动赋值运算符都是平凡的；
+\item 并且拥有一个平凡的、未被删除的析构函数。
+\end{itemize}
+
+现在，我们需要理解什么是平凡的特殊成员函数：
+
+关于默认构造函数，参见 C++ 标准中的这一节——class.default.ctor\#3：
+
+一个默认构造函数是平凡的，当且仅当它不是用户提供的，并且：
+
+\begin{itemize}
+\item 它的类没有虚函数，也没有虚基类；
+\item 它的类中没有任何非静态数据成员带有默认成员初始化器；
+\item 它的类的所有直接基类都有平凡的默认构造函数；
+\item 对于它的类中所有类类型（或其数组）的非静态数据成员，每个这样的类都有平凡的默认构造函数。
+\end{itemize}
+
+否则，该默认构造函数就是非平凡的。
+
+关于拷贝 / 移动构造函数，参见 C++ 标准中的这一节——class.copy.ctor\#11：
+
+类 X 的拷贝 / 移动构造函数是平凡的，当且仅当它不是用户提供的，并且：
+
+\begin{itemize}
+\item 类 X 没有虚函数，也没有虚基类；
+\item 用于拷贝 / 移动每个直接基类子对象的构造函数是平凡的；
+\item 对于 X 中每个类类型（或其数组）的非静态数据成员，用于拷贝 / 移动该成员的构造函数是平凡的；
+\end{itemize}
+
+否则，该拷贝 / 移动构造函数就是非平凡的。
+
+正如我提到的，\texttt{MyType0} 和 \texttt{MyType2} 是平凡的，因为它们拥有平凡的默认构造函数，并且不违反上述任何规则。\texttt{MyType1} 和 \texttt{MyType3} 有空的构造函数，但它们是用户提供的，因此它们不可能是平凡类型。
+
+我们有了一些定义，但这些细微差异会带来什么影响呢？
+
+\begin{itemize}
+\item 平凡类型占据一块连续的内存区域（包括填充字节）。
+\item 它们是“可内存拷贝（mem-copyable）”的，所以你可以把它们转换成一个字节数组，再读回来。
+\item 平凡类型不能在没有初始化器的情况下被声明为 \texttt{const}。
+\item 当一个平凡类型被零初始化（例如通过值初始化 \texttt{\{\}}）时，它的数据成员也会被零初始化。
+\end{itemize}
+
+我们来试一些代码：
+
+\begin{codebox}[cpp]
+// 零初始化
+MyType0 t0{};
+std::cout << t0.x << '\n';
+MyType1 t1{};
+std::cout << t1.x << '\n';
+MyType2 t2{};
+std::cout << t2.x << '\n';
+MyType3 t3{};
+std::cout << t3.x << '\n';
+\end{codebox}
+
+当你在 Compiler Explorer 上运行代码时，会得到如下输出：
+
+\begin{codebox}[cpp]
+0
+408939456
+0
+0
+\end{codebox}
+
+如你所见，零初始化生效了，但对 \texttt{MyType1} 除外。在那种情况下，编译器会调用默认构造函数，但不会把数据成员初始化为 \texttt{0}。
+
+类似地，对于 \texttt{const} 变量：
+
+\begin{codebox}[cpp]
+// const MyType0 ct0; // 错误！
+const MyType1 ct1; // 没问题，调用空构造函数
+// const MyType2 ct2; // 错误！
+const MyType3 ct3; // 没问题
+\end{codebox}
+
+\begin{myInfoBox}
+此外，这类类类型是标准布局（standard layout）的，简而言之，这意味着它们的内存布局是明确定义的，因而可以被 C 程序使用。当一个类同时也是平凡的时候，在跨平台代码之间共享、或者与 C 语言模块通信都会很容易。更多内容见 Trivial、standard-layout、POD 与字面量类型 | Microsoft Docs。
+\end{myInfoBox}
+
+\begin{myInfoBox}
+如果你想更多地了解平凡类型、布局等内容，我强烈推荐阅读《Embracing Modern C++ Safely》一书第 2 章第 401 页的“Generalized PODs”。
+\end{myInfoBox}
+

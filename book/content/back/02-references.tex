@@ -1,0 +1,52 @@
+以下关于 C++ 中数据成员初始化（data member initialization）的相关资料与链接：
+
+\textbf{C++ 特性提案：}
+
+\begin{itemize}
+\item N2756\footnote{\url{https://wg21.link/N2756}} —— C++11 的非静态数据成员初始化器。
+\item P0683\footnote{\url{https://wg21.link/P0683}} —— C++20 的默认位字段初始化器。
+\item P0386\footnote{\url{https://wg21.link/P0386}} —— C++17 的内联变量（inline variable）。
+\item P0329\footnote{\url{https://wg21.link/P0329}} —— C++20 的指定初始化器（designated initializer）。
+\item P0960\footnote{\url{https://wg21.link/p0960}} 与 P1975\footnote{\url{https://wg21.link/p1975}} —— C++20 中从带括号列表进行聚合初始化（aggregate initialization）。
+\end{itemize}
+
+\textbf{C++ 的宝贵资源：}
+
+\begin{itemize}
+\item C++ 标准草案 N4868\footnote{（C++ 标准草案 N4868，2020 年 10 月虚拟全体会议前的预工作草案，含 C++20 及编辑性修改）}（2020 年 10 月虚拟全体会议前的预工作草案，含 C++20 及编辑性修改）。
+\item C++ 编译器支持 —— C++Reference\footnote{（C++Reference 上的各特性编译器支持列表）} —— 列出自 C++11 起各特性及其编译器支持情况的清单。
+\item C++ 核心指南（C++ Core Guidelines）\footnote{\url{https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines}} —— 由社区维护的开放式 C++ 风格指南，由 Bjarne Stroustrup 和 Herb Sutter 牵头。
+\end{itemize}
+
+\textbf{书籍：}
+
+\begin{itemize}
+\item 《Embracing Modern C++ Safely》\footnote{（J. Lakos、V. Romeo、R. Khlebnikov、A. Meredith 所著，一本精彩且非常详尽的著作，讲解最新 C++ 特性，第 1 版涵盖至 C++14）}，作者 J. Lakos、V. Romeo、R. Khlebnikov、A. Meredith，一本精彩且非常详尽的著作，讲解最新 C++ 特性，第 1 版涵盖从 C++11 到 C++14。
+\item 《Effective Modern C++：42 个改善 C++11 和 C++14 使用的具体办法》\footnote{\url{https://amzn.to/3t5tmS4}}，作者 Scott Meyers。
+\end{itemize}
+
+\textbf{演讲：}
+
+\begin{itemize}
+\item Core C++ 2019：现代 C++ 中的初始化\footnote{\url{https://www.youtube.com/watch?v=v0jM4wm1zYA}}，Timur Doumler。
+\item CppCon 2018：《C 语言中初始化的噩梦》\footnote{\url{https://www.youtube.com/watch?v=7DTlWPgX6zs}}，Nicolai Josuttis。
+\item CppCon 2021：回到基础——特殊成员函数\footnote{\url{https://www.youtube.com/watch?v=9BM5LAvNtus}}，Klaus Iglberger。
+\item ACCU 2022：我们设计了哪些类以及为何这样设计\footnote{\url{https://www.youtube.com/watch?v=fzsBZicBe88}}，Peter Sommerlad。
+\item CppCon 2018：《main() 之间的那些字节：我们如何到达 main()》\footnote{\url{https://www.youtube.com/watch?v=dOfucXtyEsU}}，Matt Godbolt。
+\end{itemize}
+
+\textbf{文章与其他链接：}
+
+\begin{itemize}
+\item 非静态数据成员初始化 —— C++ Stories\footnote{\url{https://www.cppstories.com/2015/02/non-static-data-members-initialization/}} —— 本书的初始资料来源。
+\item 程序启动时你的静态变量发生了什么？—— C++ Stories\footnote{\url{https://www.cppstories.com/2018/02/staticvars/}}。
+\item Always Almost Auto Style\footnote{\url{https://herbsutter.com/2013/08/12/gotw-94-solution-aaa-style-almost-always-auto/}}，Herb Sutter。
+\item C++ 核心指南 —— C51 与 C52\footnote{\url{https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines\#c51-use-delegating-constructors-to-represent-common-actions-for-all-constructors-of-a-class}} —— 关于委托构造函数（delegating constructor）与继承构造函数（inheriting constructor）。
+\item 现代 C++ 特性——继承构造函数与委托构造函数\footnote{\url{https://arne-mertz.de/2015/08/new-c-features-inherited-and-delegating-constructors/}}，Arne Mertz。
+\item Microsoft Docs 上的平凡类型、标准布局类型、POD 与字面量类型\footnote{\url{https://docs.microsoft.com/en-us/cpp/cpp/trivial-standard-layout-and-pod-types?view=msvc-170}}。
+\item 现代 C++ 特性——统一初始化与 \texttt{initializer\_list}\footnote{（Arne Mertz 关于统一初始化与 initializer\_list 的文章）}，Arne Mertz。
+\item \texttt{std::initializer\_list} 的代价\footnote{（Andrzej Krzemieński 关于 std::initializer\_list 代价的文章）}，Andrzej Krzemieński。
+\item 对象、其生命期与指针\footnote{（Dawid Pilarski 关于对象、生命期与指针的文章）}，Dawid Pilarski。
+\item 教程：何时编写哪个特殊成员函数\footnote{（Jonathan Müller 关于何时编写哪个特殊成员函数的教程）}，Jonathan Müller。
+\item C++ 中 const 或引用成员变量的影响\footnote{\url{https://lesleylai.info/en/const-and-reference-member-variables/}}，Lesley Lai。
+\end{itemize}

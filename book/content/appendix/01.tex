@@ -1,0 +1,146 @@
+在讲解构造函数与析构函数的章节中，我们讨论了编译器何时会为一个类类型隐式生成（implicitly generate）某个特殊成员函数。在本附录中，你将看到一份针对最常见用例的规则与指南的便捷总结。
+
+\section{示意图}
+
+C++ 专家 Howard Hinnant 几年前制作了一张关于这些规则的示意图\footnote{图表经 Howard Hinnant 许可重绘。}：
+
+\myGraphic{0.9}{images/fig_p263_1.png}{（特殊成员函数生成规则示意图）}
+
+Howard 是 C++11 移动语义（move semantics）提案、\texttt{std::chrono} 库以及现代 C++ 其他若干重要部分的主要设计者与作者。这张图及其详尽的说明可以在此页面找到：C++ class declarations\footnote{\url{https://howardhinnant.github.io/classdecl.html}}，另可参见这场演讲：Everything you need to know about move semantics - Howard Hinnant @YouTube\footnote{\url{https://www.youtube.com/watch?v=vLinb2fgkHk}}。
+
+如何阅读这张图：
+
+标签（Labels）：
+
+\begin{itemize}
+\item defaulted —— 若可能，编译器会生成该函数。
+\item defaulted* —— 自 C++11 起已弃用（deprecated）的行为，编译器可能会对函数生成发出警告。
+\item not-declared —— 不存在该函数的声明，因此它不会参与重载决议（overload resolution）。
+\item deleted —— 该函数为 \texttt{=delete}，意味着它会参与重载决议，但不可访问。
+\item user declared —— 该函数由用户声明，而非由编译器隐式提供。这包括空实现、\texttt{=default} 甚至 \texttt{=delete}。
+\end{itemize}
+
+规则（Rules）：
+
+\begin{itemize}
+\item 如果用户没有声明任何特殊成员函数，编译器会默认生成所有特殊成员函数。
+\item 如果用户声明了任何构造函数（constructor），编译器会默认生成所有特殊成员函数，但默认构造函数（default constructor）除外。
+\item 如果用户声明了默认构造函数，编译器会默认生成所有特殊成员函数。
+\item 如果用户声明了析构函数（destructor），编译器会默认生成默认构造函数、拷贝构造函数（copy constructor）和拷贝赋值（copy assignment）操作。移动构造函数（move constructor）和移动赋值（move assignment）不会被声明。这种做法已被弃用，编译器可能会对此类行为发出警告。通常，当你声明了析构函数时，默认的拷贝构造函数很可能不够用。
+\item 如果用户声明了拷贝构造函数，编译器不会声明默认构造函数、析构函数，而拷贝赋值会被默认生成。移动构造函数和移动赋值不会被声明。
+\item 如果用户声明了拷贝赋值，编译器会默认生成默认构造函数、析构函数和拷贝赋值。移动构造函数和移动赋值不会被声明。
+\item 如果用户声明了移动构造函数，编译器不会声明默认构造函数，而析构函数会被默认生成。移动赋值不会被声明。最重要的部分是：拷贝构造函数和拷贝赋值运算符会被删除（deleted）。
+\item 如果用户声明了移动赋值，编译器会默认生成默认构造函数和析构函数。移动构造函数不会被声明。拷贝构造函数和拷贝赋值运算符会被删除。
+\end{itemize}
+
+\section{提供更多函数的情况}
+
+在同一行中，只有一个"用户声明"的函数，但如果你的类类型声明了不止一个特殊成员函数，那么你必须查看匹配各行交集的结果。例如，假设你声明了默认构造函数和移动赋值。在这种情况下，编译器会为析构函数提供默认实现，但会删除拷贝操作，且不声明移动构造函数。
+
+\section{继承}
+
+那么基类和派生类又如何呢？
+
+\begin{itemize}
+\item 对于类 \texttt{T}，如果 \texttt{T} 拥有一个被删除的默认构造函数、或对该构造函数而言模糊或不可访问的直接基类或虚基类，则其默认构造函数将被定义为已删除。
+\item 对于类 \texttt{T}，如果 \texttt{T} 拥有一个无法被拷贝（其拷贝构造函数被删除、不可访问或模糊）的直接基类或虚基类，则其拷贝构造函数将被定义为已删除。
+\item 对于类 \texttt{T}，如果 \texttt{T} 拥有一个无法被移动（其移动构造函数被删除、不可访问或模糊）的直接基类或虚基类，则其移动构造函数将被定义为已删除。
+\end{itemize}
+
+例如：
+
+\begin{codebox}[cpp]
+struct Base {
+Base(Base&&) = delete;
+};
+struct Derived : Base { };
+int main() {
+Derived d; // won't compile!
+}
+\end{codebox}
+
+上面的代码无法编译。我们从 \texttt{Base} 类中删除了移动构造函数。这意味着 \texttt{Derived} 类型中的移动构造函数也被删除了。在两种类型中，默认构造函数都未被声明，也不可访问。
+
+\section{规则}
+
+\subsection{零法则（Rule of zero）}
+
+在大多数情况下，定义一个不含任何特殊成员函数的类就能正常工作：
+
+\begin{codebox}[cpp]
+class RuleOfZero {
+public:
+// no custom special member functions...
+// member functions...
+// data members...
+};
+\end{codebox}
+
+在上述情况下，\texttt{RuleOfZero} 类的所有特殊成员函数都由编译器隐式定义。
+
+参见 C++ 编码指南（C++ Coding Guideline）中的以下规则：C.20：如果可以避免定义默认操作，那就不要定义\footnote{\url{https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines\#c20-if-you-can-avoid-defining-default-operations-do}}。
+
+\subsection{三法则（Rule of three，已弃用！）}
+
+在 C++11 之前，还没有移动操作，你可以实现全部特殊成员函数：
+
+\begin{codebox}[cpp]
+class OldRuleOfThree {
+public:
+~OldRuleOfThree();
+OldRuleOfThree(const OldRuleOfThree& other);
+OldRuleOfThree& operator=(const OldRuleOfThree& other);
+};
+\end{codebox}
+
+然而，自 C++11 起，你不应再使用这种模式，因为一旦声明了拷贝操作，移动操作就不会被声明。缺少移动操作会"拖慢"使用这些对象的代码，因为编译器将只能拷贝数据，而无法借助移动来优化。
+
+\subsection{五法则与六法则（Rule of 5 and 6）}
+
+对于 C++11 及之后的版本，如果你实现了一个充当容器或资源管理者（resource manager）的类，那么你很可能需要实现全部特殊成员函数：
+
+\begin{codebox}[cpp]
+class RuleOfSix {
+public:
+RuleOfSix();
+~RuleOfSix() noexcept;
+RuleOfSix(const RuleOfSix& other);
+RuleOfSix& operator=(const container& other);
+RuleOfSix(RuleOfSix&& other) noexcept;
+RuleOfSix& operator=(container&& other) noexcept;
+};
+\end{codebox}
+
+参见 C++ 编码指南中的以下规则：C.21：如果你定义或 \texttt{=delete} 了任何拷贝、移动或析构函数，那就把它们全部定义或 \texttt{=delete}\footnote{\url{https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines\#c21-if-you-define-or-delete-any-copy-move-or-}}。
+
+\subsection{仅可移动类型（Moveable only types）}
+
+\begin{codebox}[cpp]
+class MoveableOnly {
+public:
+MoveableOnly() noexcept;
+~MoveableOnly() noexcept;
+MoveableOnly(MoveableOnly&& other) noexcept;
+MoveableOnly& operator=(MoveableOnly&& other) noexcept;
+};
+\end{codebox}
+
+注意，在上述情况下，因为我们声明了移动操作，编译器会删除拷贝操作：
+
+\begin{codeboxt}[cpp]{示例类型：std::unique\_ptr}
+// MoveableOnly(const MoveableOnly&) = delete;
+// MoveableOnly& operator=(const MoveableOnly&) = delete;
+\end{codeboxt}
+
+\subsection{多态基类（Polymorphic base classes）}
+
+\begin{codebox}[cpp]
+class BasePoly {
+public:
+virtual ~BasePoly() = default;
+BasePoly& operator=(BasePoly&& other) = delete;
+virtual void foo();
+}
+\end{codebox}
+
+通过声明移动赋值，我们阻止了拷贝操作（它们会被删除）；移动构造函数不会被声明。但我们必须显式引入一个 \texttt{virtual} 析构函数，因为默认情况下编译器只创建一个非虚的默认析构函数。
